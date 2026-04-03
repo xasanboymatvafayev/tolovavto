@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>To'lovchi.uz API Docs</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0d1117; color: #e6edf3; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.6; }
+  .container { max-width: 860px; margin: 0 auto; padding: 40px 20px; }
+
+  .hero { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 32px; margin-bottom: 24px; }
+  .hero h1 { font-size: 28px; font-weight: 700; color: #e6edf3; margin-bottom: 8px; }
+  .hero p { color: #8b949e; font-size: 15px; margin-bottom: 20px; }
+  .hero p code { background: #21262d; padding: 1px 6px; border-radius: 4px; font-family: monospace; color: #79c0ff; }
+  .base-url-label { font-size: 13px; font-weight: 600; color: #8b949e; margin-bottom: 4px; }
+  .base-url { font-family: monospace; font-size: 14px; color: #58a6ff; background: #21262d; padding: 8px 12px; border-radius: 6px; display: inline-block; }
+
+  .section { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 28px; margin-bottom: 20px; }
+  .section-title { font-size: 18px; font-weight: 600; color: #e6edf3; margin-bottom: 6px; display: flex; align-items: center; gap: 10px; }
+  .section-title .icon { font-size: 18px; }
+  .section-sub { color: #8b949e; font-size: 13px; margin-bottom: 18px; }
+  .section-sub strong { color: #e6edf3; }
+
+  .method-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .badge-get { background: #1f6feb; color: #fff; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 5px; letter-spacing: 0.5px; }
+  .endpoint { font-family: monospace; font-size: 13px; color: #8b949e; background: #21262d; padding: 6px 12px; border-radius: 6px; }
+
+  table { width: 100%; border-collapse: collapse; margin-bottom: 18px; }
+  thead tr { background: #21262d; }
+  thead th { text-align: left; padding: 10px 14px; font-size: 13px; font-weight: 600; color: #8b949e; border: 1px solid #30363d; }
+  tbody td { padding: 10px 14px; font-size: 13px; color: #c9d1d9; border: 1px solid #30363d; font-family: monospace; }
+  tbody td:last-child { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+  tbody tr:hover { background: #1c2128; }
+
+  .response-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .dot-success { width: 14px; height: 14px; background: #3fb950; border-radius: 3px; display: inline-block; }
+  .dot-error { width: 14px; height: 14px; background: #d29922; border-radius: 3px; display: inline-block; }
+  .dot-danger { width: 14px; height: 14px; background: #f85149; border-radius: 3px; display: inline-block; }
+  .response-label.success { color: #3fb950; }
+  .response-label.error { color: #d29922; }
+  .response-label.danger { color: #f85149; }
+
+  .code-block { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 16px; font-family: monospace; font-size: 13px; color: #c9d1d9; margin-bottom: 14px; white-space: pre; overflow-x: auto; line-height: 1.7; }
+  .code-block .key { color: #79c0ff; }
+  .code-block .str { color: #a5d6ff; }
+  .code-block .num { color: #f2cc60; }
+
+  .warning-text { color: #d29922; font-size: 13px; margin-bottom: 6px; }
+  .warning-text strong { font-weight: 600; }
+
+  .divider { border: none; border-top: 1px solid #30363d; margin: 20px 0; }
+
+  .footer { text-align: center; color: #8b949e; font-size: 13px; padding: 24px 0 8px; }
+  .footer a { color: #58a6ff; text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  .errors-section { margin-top: 8px; }
+  .errors-title { font-size: 16px; font-weight: 600; color: #d29922; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>To'lovchi.uz API</h1>
+    <p>To'lovchi.uz API orqali to'lovlarni yaratish, tekshirish va boshqarish mumkin. Barcha so'rovlar <code>GET</code> metodi orqali yuboriladi.</p>
+    <div class="base-url-label">Asosiy URL:</div>
+    <div class="base-url">https://tolovchi.uz/api</div>
+  </div>
+
+  <!-- 1. Yangi to'lov yaratish -->
+  <div class="section">
+    <div class="section-title"><span class="icon">💳</span> Yangi to'lov yaratish</div>
+    <div class="method-row">
+      <span class="badge-get">GET</span>
+      <span class="endpoint">?method=create&amp;shop_id=ID&amp;shop_key=KEY&amp;amount=10000</span>
+    </div>
+
+    <table>
+      <thead><tr><th>Parametr</th><th>Tavsif</th></tr></thead>
+      <tbody>
+        <tr><td>shop_id</td><td>Do'kon identifikatori</td></tr>
+        <tr><td>shop_key</td><td>Maxfiy kalit</td></tr>
+        <tr><td>amount</td><td>To'lov summasi (so'm)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="response-label success"><span class="dot-success"></span> Muvaffaqiyatli javob</div>
+    <div class="code-block"><span class="key">{</span>
+  <span class="key">"status"</span>: <span class="str">"success"</span>,
+  <span class="key">"order"</span>: <span class="str">"owld1002"</span>,
+  <span class="key">"data"</span>: {
+    <span class="key">"amount"</span>: <span class="num">10000</span>,
+    <span class="key">"status"</span>: <span class="str">"pending"</span>
+  }
+<span class="key">}</span></div>
+
+    <p class="warning-text">Agar aynan shu miqdorda (<strong>amount</strong>) <strong>pending</strong> holatdagi to'lov mavjud bo'lsa, so'rov rad etiladi.</p>
+
+    <div class="response-label error"><span class="dot-error"></span> Xatolik holati</div>
+    <div class="code-block"><span class="key">{</span>
+  <span class="key">"status"</span>: <span class="str">"error"</span>,
+  <span class="key">"message"</span>: <span class="str">"There is a pending payment for this amount."</span>
+<span class="key">}</span></div>
+  </div>
+
+  <!-- 2. To'lov statusini tekshirish -->
+  <div class="section">
+    <div class="section-title"><span class="icon">🔍</span> To'lov statusini tekshirish</div>
+    <div class="section-sub">Statuslar: <strong>pending</strong>, <strong>paid</strong>, <strong>cancel</strong></div>
+    <div class="method-row">
+      <span class="badge-get">GET</span>
+      <span class="endpoint">?method=check&amp;order=ORDER_CODE</span>
+    </div>
+
+    <div class="response-label success"><span class="dot-success"></span> Muvaffaqiyatli javob</div>
+    <div class="code-block"><span class="key">{</span>
+  <span class="key">"status"</span>: <span class="str">"success"</span>,
+  <span class="key">"order"</span>: <span class="str">"owld1002"</span>,
+  <span class="key">"data"</span>: {
+    <span class="key">"amount"</span>: <span class="num">10000</span>,
+    <span class="key">"status"</span>: <span class="str">"paid"</span>
+  }
+<span class="key">}</span></div>
+  </div>
+
+  <!-- 3. To'lovni bekor qilish -->
+  <div class="section">
+    <div class="section-title"><span class="icon">❌</span> To'lovni bekor qilish</div>
+    <div class="method-row">
+      <span class="badge-get">GET</span>
+      <span class="endpoint">?method=cancel&amp;order=ORDER_CODE</span>
+    </div>
+
+    <div class="response-label success"><span class="dot-success"></span> Muvaffaqiyatli javob</div>
+    <div class="code-block"><span class="key">{</span>
+  <span class="key">"status"</span>: <span class="str">"success"</span>,
+  <span class="key">"message"</span>: <span class="str">"Buyurtma bekor qilindi"</span>
+<span class="key">}</span></div>
+  </div>
+
+  <!-- 4. Do'kon ma'lumotlari -->
+  <div class="section">
+    <div class="section-title"><span class="icon">🏪</span> Do'kon ma'lumotlari</div>
+    <div class="method-row">
+      <span class="badge-get">GET</span>
+      <span class="endpoint">?method=shop&amp;shop_id=ID&amp;shop_key=KEY</span>
+    </div>
+
+    <div class="response-label success"><span class="dot-success"></span> Muvaffaqiyatli javob</div>
+    <div class="code-block"><span class="key">{</span>
+  <span class="key">"status"</span>: <span class="str">"success"</span>,
+  <span class="key">"data"</span>: {
+    <span class="key">"shop_name"</span>: <span class="str">"Mening Do'konim"</span>,
+    <span class="key">"balance"</span>: <span class="num">500000</span>,
+    <span class="key">"status"</span>: <span class="str">"confirm"</span>
+  }
+<span class="key">}</span></div>
+
+    <hr class="divider">
+
+    <div class="errors-section">
+      <div class="errors-title">⚠ Xatoliklar</div>
+      <table>
+        <thead><tr><th>Xabar</th><th>Tavsif</th></tr></thead>
+        <tbody>
+          <tr><td>Do'kon topilmadi</td><td>Noto'g'ri shop_id yoki shop_key</td></tr>
+          <tr><td>Do'kon faol emas</td><td>Admin tomonidan bloklangan</td></tr>
+          <tr><td>Oylik to'lov qilinmagan</td><td>Do'kon faol emas</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    ✓ <strong>shop_id</strong> va <strong>shop_key</strong> <a href="https://t.me/tolovci_uz_bot" target="_blank">@tolovci_uz_bot</a> orqali olasiz
+  </div>
+
+</div>
+</body>
+</html>
