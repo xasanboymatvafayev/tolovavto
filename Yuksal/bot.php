@@ -2,7 +2,7 @@
 
 $sub_domen = "tgbots.uz";
 
-require ("config.php");
+require (__DIR__ . "/../config.php");
 
 $administrator = "10";
 $admin = array($administrator,$admins);
