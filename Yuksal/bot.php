@@ -699,8 +699,8 @@ $keyboard = json_encode([
 ]
 ]);
 
-if ($balance >= 20000) {
-$new_balance = $balance - 20000;
+if ($balance >= 0) {
+$new_balance = $balance - 0;
 mysqli_query($connect, "UPDATE users SET balance = $new_balance WHERE user_id = '$cid'");
 bot('editMessageText', [
 'chat_id' => $cid,
