@@ -5,7 +5,7 @@ header("Content-Type: application/json; charset=UTF-8");
 $rawInput = file_get_contents("php://input");
 $data = json_decode($rawInput, true);
 
-require_once __DIR__ . "/../UnversalAPIBot/config.php";
+require_once __DIR__ . "/../config.php";
 
 $shop_id = $data['shop_id'] ?? $_POST['shop_id'] ?? null;
 $shop_key = $data['shop_key'] ?? $_POST['shop_key'] ?? null;
