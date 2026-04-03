@@ -1,0 +1,6 @@
+{
+    "name": "yuksal/api",
+    "require": {
+        "php": ">=8.0"
+    }
+}
