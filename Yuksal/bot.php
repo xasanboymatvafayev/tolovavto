@@ -428,7 +428,7 @@ bot('DeleteMessage',[
 if($text == "📖 API Hujjatlar" && joinchat($cid) == true){
 bot('sendMessage',[
 'chat_id'=>$cid,
-'text'=>"<b>API:</b> https://$sub_domen",
+'text'=>"<b>API:</b> https://$sub_domen/api",
 'disable_web_page_preview'=>true,
 'parse_mode'=>'html',
 'reply_markup' => json_encode([
