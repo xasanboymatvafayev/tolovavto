@@ -353,6 +353,7 @@ bot('sendMessage',[
 'chat_id'=>$cid,
 'text'=>"💳 <b>To'lov ma'lumotlari:</b>
 
+➡️ Karta raqam: <code>5614 6835 8227 9246</code>
 💵 Miqdori: <code>$amount</code> so'm
 ⏰ To'lovni kutish vaqti: <b>30</b> daqiqa
 ✅ To'lov avtomatik qabul qilinadi
