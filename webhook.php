@@ -3,14 +3,14 @@ require_once __DIR__ . '/config.php';
 
 header("Content-Type: application/json");
 
-// 🔐 Faqat POST so'rovlarni qabul qilish
+// 🔐 Faqat POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['status' => 'error', 'message' => 'Only POST allowed']);
     exit;
 }
 
-// 📥 RAW DATA
+// 📥 DATA
 $raw = file_get_contents('php://input');
 $data = json_decode($raw, true);
 
@@ -20,7 +20,7 @@ if (!$data) {
     exit;
 }
 
-// 📩 EMAIL DATA
+// 📩 EMAIL
 $plain = $data['plain'] ?? '';
 $html = $data['html'] ?? '';
 $body = $plain . " " . $html;
@@ -29,12 +29,11 @@ $subject = $data['headers']['subject'] ?? '';
 $from = $data['envelope']['from'] ?? '';
 $message_id = $data['headers']['message-id'] ?? uniqid();
 
-
 // 🔗 LINKLARNI TOPISH
 preg_match_all('/https?:\/\/[^\s"\']+/', $body, $link_matches);
 $links = $link_matches[0];
 
-// 🔗 FAqat TASDIQLASH LINK
+// 🔗 TASDIQLASH LINK
 $verify_links = array_filter($links, function($l){
     return stripos($l, 'verify') !== false 
         || stripos($l, 'confirm') !== false 
@@ -43,29 +42,23 @@ $verify_links = array_filter($links, function($l){
 });
 $real_link = reset($verify_links);
 
-
-// 🔢 KODLARNI TOPISH (4-6 xonali)
+// 🔢 VERIFICATION KOD
 preg_match_all('/\b\d{4,6}\b/', $body, $code_matches);
 $codes = array_unique($code_matches[0]);
 $real_code = end($codes);
 
-
-// 💾 DEBUG LOG
+// 💾 DEBUG
 file_put_contents("debug_email.txt", 
 "FROM: $from
 SUBJECT: $subject
-
 LINK: $real_link
 CODE: $real_code
-
 BODY:
 $body
-
 ======================
 ", FILE_APPEND);
 
-
-// 🤖 TELEGRAM
+// 🤖 TELEGRAM CONFIG
 $bot_token = "8633127729:AAFJKicIGcxHILdVTO-GAJ1jANHva-JW2mA"; // O'zgartir
 $chat_id = "6365371142"; // O'zgartir
 
@@ -73,25 +66,21 @@ function sendTelegram($text, $bot_token, $chat_id) {
     @file_get_contents("https://api.telegram.org/bot$bot_token/sendMessage?chat_id=$chat_id&text=" . urlencode($text));
 }
 
-
-// 🔐 AGAR TASDIQLASH LINK BO‘LSA
+// 🔐 TASDIQLASH LINK
 if ($real_link) {
     sendTelegram("🔗 Tasdiqlash link:\n" . $real_link, $bot_token, $chat_id);
-
     http_response_code(200);
     echo json_encode(['status' => 'link_detected']);
     exit;
 }
 
-// 🔐 AGAR KOD BO‘LSA (verification)
+// 🔐 VERIFICATION KOD
 if ($real_code && !$real_link) {
     sendTelegram("🔐 Kod: " . $real_code, $bot_token, $chat_id);
-
     http_response_code(200);
     echo json_encode(['status' => 'code_detected']);
     exit;
 }
-
 
 // 💰 PAYMENT PARSE
 function format_amount($raw) {
@@ -143,7 +132,6 @@ if (mysqli_num_rows($check) > 0) {
     exit;
 }
 
-
 // 💾 DB SAVE
 $amount_esc = (int)$amount;
 $merchant_esc = mysqli_real_escape_string($connect, $merchant ?? 'Unknown');
@@ -157,18 +145,21 @@ $insert = mysqli_query($connect, "INSERT INTO payments
 VALUES 
 ('$msg_id_esc', '$amount_esc', '$merchant_esc', '$date_esc', '$card_esc', '$body_esc', NOW())");
 
-
-// 📤 TELEGRAMGA HUMAN-READABLE PAYMENT XABAR
+// 📤 TELEGRAM XABAR (human-readable)
 if ($insert) {
     $status_emoji = "";
     $sum_emoji = "";
 
-    // O'tkazma (pul tushsa)
-    if (preg_match('/POPOLN|SCHETA/i', $body)) {
+    $body_lower = mb_strtolower($body);
+
+    // 🟢 O'tkazma (pul tushsa)
+    if (strpos($body_lower, 'popoln') !== false 
+        || strpos($body_lower, 'tushum') !== false 
+        || strpos($body_lower, 'sch') !== false) {
         $status_emoji = "🟢 O'tkazma";
         $sum_emoji = "➕";
     }
-    // To'lov (chiqim)
+    // 🔴 To'lov (chiqim)
     else {
         $status_emoji = "🔴 To'lov";
         $sum_emoji = "➖";
@@ -179,14 +170,12 @@ if ($insert) {
     $telegram_msg .= "━━━━━━━━━━━━━━\n";
     $telegram_msg .= "$sum_emoji Summa: " . number_format($amount, 0, '.', ' ') . " UZS\n";
 
-    // Karta raqami olish (agar **** bo'lsa)
     if (preg_match('/\*\*\*\*\s*(\d{4})/', $body, $m)) {
         $card_last = $m[1];
     } else {
-        $card_last = "XXXX";
+        $card_last = "9246";
     }
     $telegram_msg .= "💳 Karta: **** $card_last\n";
-
     $telegram_msg .= "🏪 Manba: " . ($merchant ?? "Unknown") . "\n";
     $telegram_msg .= "🕒 Vaqt: $date\n";
     $telegram_msg .= "━━━━━━━━━━━━━━\n";
