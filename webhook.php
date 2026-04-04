@@ -56,21 +56,15 @@ foreach ($lm[0] as $l) {
 
 // ============================================
 // UZCARD EMAIL PARSE
-// Misol:
-// "Platezh: OPENBANK ..., summa:1000.00 UZS balans:9439.00 UZS"
-// "Perevod na kartu: OPENBANK SCHET TO UZCARD ..., summa:2000.00 UZS balans:11439.00 UZS"
 // ============================================
 
 // Summa va balansni olish
-// Format: summa:1000.00 UZS balans:9439.00 UZS
 if (!preg_match('/summa:([\d]+(?:[.,]\d+)?)\s*UZS\s+balans:([\d]+(?:[.,]\d+)?)\s*UZS/i', $body, $sm)) {
-    // Topilmadi - skip
     http_response_code(200);
     echo json_encode(['status' => 'skip', 'reason' => 'no payment found']);
     exit;
 }
 
-// Summani to'g'ri parse qilish: "1000.00" -> 1000
 $amount  = (int)round((float)str_replace(',', '.', $sm[1]));
 $balance = (int)round((float)str_replace(',', '.', $sm[2]));
 
@@ -86,47 +80,68 @@ if (preg_match('/karta\s+\*+(\d{4})/i', $body, $cm)) {
     $card_last = $cm[1];
 }
 
-// Vaqt: "04.04.26 22:52" -> "04.04.2026 22:52"
+// Vaqt
 $op_date = date('d.m.Y H:i');
 if (preg_match('/(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})/i', $body, $dm)) {
     $date_parts = explode('.', $dm[1]);
     $op_date = $date_parts[0] . '.' . $date_parts[1] . '.20' . $date_parts[2] . ' ' . $dm[2];
 }
 
-// Operatsiya turi va manba aniqlash
-// "Platezh: MERCHANT_NAME, ..." -> chiqim (debit)
-// "Perevod na kartu: SOURCE_NAME, ..." -> kirim (credit)
-// "POPOLN SCHETA" -> kirim (credit) - hisobni to'ldirish
+// ============================================
+// OPERATSIYA TURINI ANIQLASH (TO'G'RILANGAN)
+// ============================================
 
-$type      = 'debit';
-$merchant  = 'Noma\'lum';
+$type = 'debit';
 $type_text = "🔴 Chiqim (To'lov)";
-$sign      = "➖";
+$sign = "➖";
+$merchant = "Noma'lum";
 
-// Kirim holatlari
-if (
-    preg_match('/POPOLN\s+SCHETA/i', $body) ||
-    preg_match('/TO\s+UZCARD/i', $body) ||
-    preg_match('/Perevod\s+na\s+kartu/i', $body) ||
-    preg_match('/INCOMING/i', $body) ||
-    preg_match('/KREDIT/i', $body)
-) {
-    $type      = 'credit';
+// Chiqim (debit) - kartadan pul chiqadi
+// Misol: "Platezh: OPENBANK ..., summa:1000.00 UZS"
+if (preg_match('/Platezh:/i', $body)) {
+    $type = 'debit';
+    $type_text = "🔴 Chiqim (To'lov)";
+    $sign = "➖";
+}
+// Kirim (credit) - kartaga pul tushadi
+// Misol: "Perevod na kartu: OPENBANK ..., summa:2000.00 UZS"
+elseif (preg_match('/Perevod\s+na\s+kartu:/i', $body)) {
+    $type = 'credit';
     $type_text = "🟢 Kirim (O'tkazma olindi)";
-    $sign      = "➕";
+    $sign = "➕";
+}
+// Hisobni to'ldirish (credit)
+elseif (preg_match('/POPOLN\s+SCHETA/i', $body)) {
+    $type = 'credit';
+    $type_text = "🟢 Kirim (Hisob to'ldirildi)";
+    $sign = "➕";
+}
+// Qo'shimcha tekshiruv: agar matnda "SPISANIE" (hisobdan chiqarish) bo'lsa
+elseif (preg_match('/SPISANIE/i', $body)) {
+    $type = 'debit';
+    $type_text = "🔴 Chiqim (Hisobdan chiqarish)";
+    $sign = "➖";
+}
+// Qo'shimcha tekshiruv: agar matnda "ZACHISLENIE" (hisobga tushirish) bo'lsa
+elseif (preg_match('/ZACHISLENIE/i', $body)) {
+    $type = 'credit';
+    $type_text = "🟢 Kirim (Hisobga tushirildi)";
+    $sign = "➕";
 }
 
 // Merchant/Manba aniqlash
-// Format: "Platezh: MERCHANT, UZ,..." yoki "Perevod na kartu: SOURCE, UZ,..."
 if (preg_match('/(?:Platezh|Perevod na kartu|Perevod):\s*([^,]+(?:,[^,]+)?),\s*(?:UZ|KZ|RU)/i', $body, $mm)) {
     $raw_merchant = trim($mm[1]);
-    // OPENBANK UZCARD POPOLN SCHETA -> "OPENBANK (UzCard to'ldirish)"
-    // OPENBANK SCHET TO UZCARD -> "OPENBANK (UzCard o'tkazma)"
     $raw_merchant = preg_replace('/\s*UZCARD\s*POPOLN\s*SCHETA/i', '', $raw_merchant);
     $raw_merchant = preg_replace('/\s*SCHET\s*TO\s*UZCARD/i', '', $raw_merchant);
     $raw_merchant = preg_replace('/\s*OPENBANK\s*/i', 'OPENBANK ', $raw_merchant);
     $merchant = trim($raw_merchant);
     if (empty($merchant)) $merchant = 'OPENBANK';
+}
+
+// Agar merchant topilmagan bo'lsa va POPOLN bo'lsa
+if ($merchant == "Noma'lum" && preg_match('/POPOLN\s+SCHETA/i', $body)) {
+    $merchant = "UzCard hisobni to'ldirish";
 }
 
 // Duplicate tekshiruv
