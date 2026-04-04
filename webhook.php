@@ -1,6 +1,5 @@
 <?php
 require_once __DIR__ . '/config.php';
-
 header("Content-Type: application/json");
 
 // 🔐 Faqat POST
@@ -20,7 +19,7 @@ if (!$data) {
     exit;
 }
 
-// 📩 EMAIL
+// 📩 EMAIL BODY
 $plain = $data['plain'] ?? '';
 $html = $data['html'] ?? '';
 $body = $plain . " " . $html;
@@ -47,7 +46,7 @@ preg_match_all('/\b\d{4,6}\b/', $body, $code_matches);
 $codes = array_unique($code_matches[0]);
 $real_code = end($codes);
 
-// 💾 DEBUG
+// 💾 DEBUG LOG
 file_put_contents("debug_email.txt", 
 "FROM: $from
 SUBJECT: $subject
@@ -60,7 +59,7 @@ $body
 
 // 🤖 TELEGRAM CONFIG
 $bot_token = "8633127729:AAFJKicIGcxHILdVTO-GAJ1jANHva-JW2mA"; // O'zgartir
-$chat_id = "6365371142"; // O'zgartir
+$chat_id = "6365371142";
 
 function sendTelegram($text, $bot_token, $chat_id) {
     @file_get_contents("https://api.telegram.org/bot$bot_token/sendMessage?chat_id=$chat_id&text=" . urlencode($text));
@@ -92,21 +91,20 @@ $amount = null;
 $merchant = null;
 $date = null;
 $card_type = null;
+$balance = null;
 
-// HUMO
-if (preg_match('/➕\s*([\d\s\.,]+)\s*UZS/u', $body, $m)) {
+// SUMMA TOPISH (UZS bilan)
+if (preg_match('/(\d[\d\s]+)\s*UZS/u', $body, $m)) {
     $amount = format_amount($m[1]);
-    $card_type = 'HUMO';
 }
 
-// UZCARD
-if (!$amount && preg_match('/(\d[\d\s]+)\s*UZS/u', $body, $m)) {
-    $amount = format_amount($m[1]);
-    $card_type = 'UZCARD';
+// BALANS (agar mavjud bo‘lsa)
+if (preg_match('/💵 Balans:\s*([\d\s\.,]+)/u', $body, $m)) {
+    $balance = format_amount($m[1]);
 }
 
 // MERCHANT
-if (preg_match('/📍\s*(.+)/u', $body, $m)) {
+if (preg_match('/🏪 Manba:\s*(.+)/u', $body, $m)) {
     $merchant = trim($m[1]);
 }
 
@@ -137,35 +135,30 @@ $amount_esc = (int)$amount;
 $merchant_esc = mysqli_real_escape_string($connect, $merchant ?? 'Unknown');
 $date_esc = mysqli_real_escape_string($connect, $date);
 $msg_id_esc = mysqli_real_escape_string($connect, $message_id);
-$card_esc = mysqli_real_escape_string($connect, $card_type ?? 'unknown');
+$card_esc = mysqli_real_escape_string($connect, $card_type ?? 'UZCARD');
 $body_esc = mysqli_real_escape_string($connect, mb_substr($body, 0, 1000));
+$balance_esc = $balance ?? 0;
 
 $insert = mysqli_query($connect, "INSERT INTO payments 
-(message_id, amount, merchant, date, card_type, raw_message, created_at) 
+(message_id, amount, merchant, date, card_type, balance, raw_message, created_at) 
 VALUES 
-('$msg_id_esc', '$amount_esc', '$merchant_esc', '$date_esc', '$card_esc', '$body_esc', NOW())");
+('$msg_id_esc', '$amount_esc', '$merchant_esc', '$date_esc', '$card_esc', '$balance_esc', '$body_esc', NOW())");
 
 // 📤 TELEGRAM XABAR (human-readable)
 if ($insert) {
     $status_emoji = "";
     $sum_emoji = "";
 
-    $body_lower = mb_strtolower($body);
-
-    // 🟢 O'tkazma (pul tushsa)
-    if (strpos($body_lower, 'popoln') !== false 
-        || strpos($body_lower, 'tushum') !== false 
-        || strpos($body_lower, 'sch') !== false) {
+    // O'tkazma yoki To'lov aniqlash ➕ / ➖
+    if (strpos($body, '➕') !== false) {
         $status_emoji = "🟢 O'tkazma";
         $sum_emoji = "➕";
-    }
-    // 🔴 To'lov (chiqim)
-    else {
+    } else {
         $status_emoji = "🔴 To'lov";
         $sum_emoji = "➖";
     }
 
-    $telegram_msg = "🔔 $card_type Bildirishnomasi\n";
+    $telegram_msg = "🔔 $card_esc Bildirishnomasi\n";
     $telegram_msg .= $status_emoji . "\n";
     $telegram_msg .= "━━━━━━━━━━━━━━\n";
     $telegram_msg .= "$sum_emoji Summa: " . number_format($amount, 0, '.', ' ') . " UZS\n";
@@ -173,13 +166,13 @@ if ($insert) {
     if (preg_match('/\*\*\*\*\s*(\d{4})/', $body, $m)) {
         $card_last = $m[1];
     } else {
-        $card_last = "9246";
+        $card_last = "XXXX";
     }
     $telegram_msg .= "💳 Karta: **** $card_last\n";
     $telegram_msg .= "🏪 Manba: " . ($merchant ?? "Unknown") . "\n";
     $telegram_msg .= "🕒 Vaqt: $date\n";
     $telegram_msg .= "━━━━━━━━━━━━━━\n";
-    $telegram_msg .= "💵 Balans: " . number_format($amount, 2, '.', ' ') . " UZS";
+    $telegram_msg .= "💵 Balans: " . number_format($balance_esc, 2, '.', ' ') . " UZS";
 
     sendTelegram($telegram_msg, $bot_token, $chat_id);
 
