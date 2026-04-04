@@ -12,7 +12,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 // 📥 DATA
 $raw = file_get_contents('php://input');
 $data = json_decode($raw, true);
-
 if (!$data) {
     http_response_code(400);
     echo json_encode(['status' => 'error', 'message' => 'Invalid JSON']);
@@ -31,8 +30,6 @@ $message_id = $data['headers']['message-id'] ?? uniqid();
 // 🔗 LINKLARNI TOPISH
 preg_match_all('/https?:\/\/[^\s"\']+/', $body, $link_matches);
 $links = $link_matches[0];
-
-// 🔗 TASDIQLASH LINK
 $verify_links = array_filter($links, function($l){
     return stripos($l, 'verify') !== false 
         || stripos($l, 'confirm') !== false 
@@ -77,18 +74,17 @@ if ($real_code && !$real_link) {
 
 // 💰 PAYMENT PARSE
 function format_amount($raw) {
-    $clean = preg_replace('/[\s,\.]/', '', $raw);
+    $clean = preg_replace('/[^\d]/', '', $raw);
     return (int)$clean;
 }
 
 $amount = null;
+$balance = null;
 $merchant = null;
 $date = null;
-$card_type = null;
-$balance = null;
 
 // SUMMA TOPISH (har doim raqam + UZS)
-if (preg_match('/(\d[\d\s]+)\s*UZS/u', $body, $m)) {
+if (preg_match('/(\d[\d\s\.,]*)\s*UZS/i', $body, $m)) {
     $amount = format_amount($m[1]);
 }
 
@@ -129,30 +125,23 @@ $amount_esc = (int)$amount;
 $merchant_esc = mysqli_real_escape_string($connect, $merchant ?? 'Unknown');
 $date_esc = mysqli_real_escape_string($connect, $date);
 $msg_id_esc = mysqli_real_escape_string($connect, $message_id);
-$card_esc = mysqli_real_escape_string($connect, $card_type ?? 'UZCARD');
 $body_esc = mysqli_real_escape_string($connect, mb_substr($body, 0, 1000));
 $balance_esc = $balance ?? 0;
 
 $insert = mysqli_query($connect, "INSERT INTO payments 
 (message_id, amount, merchant, date, card_type, balance, raw_message, created_at) 
 VALUES 
-('$msg_id_esc', '$amount_esc', '$merchant_esc', '$date_esc', '$card_esc', '$balance_esc', '$body_esc', NOW())");
+('$msg_id_esc', '$amount_esc', '$merchant_esc', '$date_esc', 'UZCARD', '$balance_esc', '$body_esc', NOW())");
 
 // 📤 TELEGRAM XABAR (human-readable)
 if ($insert) {
-    $status_emoji = "";
-    $sum_emoji = "";
+    // 🔹 O’tkazma yoki To’lov aniqlash
+    $is_credit = preg_match('/➕|POPOLN|TO UZCARD|SCHETA/i', $body);
 
-    // O'tkazma yoki To'lov aniqlash
-    if (preg_match('/➕|POPOLN|TO UZCARD/i', $body)) {
-        $status_emoji = "🟢 O'tkazma";
-        $sum_emoji = "➕";
-    } else {
-        $status_emoji = "🔴 To'lov";
-        $sum_emoji = "➖";
-    }
+    $status_emoji = $is_credit ? "🟢 O'tkazma" : "🔴 To'lov";
+    $sum_emoji = $is_credit ? "➕" : "➖";
 
-    $telegram_msg = "🔔 $card_esc Bildirishnomasi\n";
+    $telegram_msg = "🔔 UZCARD Bildirishnomasi\n";
     $telegram_msg .= $status_emoji . "\n";
     $telegram_msg .= "━━━━━━━━━━━━━━\n";
     $telegram_msg .= "$sum_emoji Summa: " . number_format($amount, 0, '.', ' ') . " UZS\n";
