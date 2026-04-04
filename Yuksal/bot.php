@@ -3,6 +3,10 @@
 $sub_domen = "tolovavto-production.up.railway.app";
 require (__DIR__ . "/../config.php");
 
+// Sana va vaqt o'zgaruvchilarini aniqlash
+$sana = date('Y-m-d');
+$soat = date('H:i:s');
+
 $administrator = getenv('ADMIN_ID') ?: "7678663640";
 $admin = array($administrator);
 
@@ -22,23 +26,76 @@ function generate(){
     return $pass;
 }
 
+// requests jadvalini yaratish
+function createRequestsTable($connect) {
+    $connect->query("CREATE TABLE IF NOT EXISTS `requests` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY,
+        `chat_id` VARCHAR(255) NOT NULL,
+        `user_id` VARCHAR(255) DEFAULT NULL,
+        `type` VARCHAR(100) DEFAULT NULL,
+        `status` VARCHAR(50) DEFAULT 'pending',
+        `data` TEXT,
+        `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX `idx_chat_id` (`chat_id`)
+    )");
+}
+
+// channels jadvalini tekshirish va to'g'irlash
+function checkChannelsTable($connect) {
+    // Jadval mavjudligini tekshirish
+    $result = $connect->query("SHOW TABLES LIKE 'channels'");
+    if($result->num_rows == 0) {
+        // Yangi jadval yaratish
+        $connect->query("CREATE TABLE `channels` (
+            `id` INT AUTO_INCREMENT PRIMARY KEY,
+            `channelID` VARCHAR(255) DEFAULT NULL,
+            `chat_id` VARCHAR(255) DEFAULT NULL,
+            `link` TEXT,
+            `type` VARCHAR(50) DEFAULT 'lock',
+            `title` TEXT,
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )");
+    } else {
+        // Ustunlarni tekshirish
+        $columns = $connect->query("SHOW COLUMNS FROM `channels`");
+        $has_chat_id = false;
+        while($col = $columns->fetch_assoc()) {
+            if($col['Field'] == 'chat_id') $has_chat_id = true;
+        }
+        if(!$has_chat_id) {
+            $connect->query("ALTER TABLE `channels` ADD COLUMN `chat_id` VARCHAR(255) DEFAULT NULL");
+            $connect->query("UPDATE `channels` SET `chat_id` = `channelID` WHERE `channelID` IS NOT NULL");
+        }
+    }
+}
+
+// Jadval yaratish
+createRequestsTable($connect);
+checkChannelsTable($connect);
+
 function joinchat($id){
     global $connect, $administrator;
     $result = $connect->query("SELECT * FROM `channels`");
     if($result->num_rows > 0 && $id != $administrator){
         $no_subs = 0; $button = [];
         while($row = $result->fetch_assoc()){
-            $type = $row['type']; $link = $row['link']; $channelID = $row['channelID'];
-            $gettitle = bot('getchat',['chat_id'=>$channelID])->result->title;
+            $type = $row['type']; 
+            $link = $row['link']; 
+            $channelID = $row['channelID'];
+            $chat_id_col = $row['chat_id'] ?? $channelID;
+            
+            $gettitle = bot('getchat',['chat_id'=>$chat_id_col])->result->title ?? "Kanal";
             if($type=="lock"||$type=="request"){
                 if($type=="request"){
-                    global $connect;
-                    $c = $connect->query("SELECT * FROM `requests` WHERE id='$id' AND chat_id='$channelID'");
-                    if($c->num_rows>0) $button[]=['text'=>"✅ $gettitle",'url'=>$link];
+                    $c = $connect->query("SELECT * FROM `requests` WHERE user_id='$id' AND chat_id='$chat_id_col'");
+                    if($c && $c->num_rows>0) $button[]=['text'=>"✅ $gettitle",'url'=>$link];
                     else{ $button[]=['text'=>"❌ $gettitle",'url'=>$link]; $no_subs++; }
                 }elseif($type=="lock"){
-                    $s = bot('getChatMember',['chat_id'=>$channelID,'user_id'=>$id])->result->status;
-                    if($s=="left"){ $button[]=['text'=>"❌ $gettitle",'url'=>$link]; $no_subs++; }
+                    $s = bot('getChatMember',['chat_id'=>$chat_id_col,'user_id'=>$id])->result->status ?? 'left';
+                    if($s=="left" || $s=="kicked"){ 
+                        $button[]=['text'=>"❌ $gettitle",'url'=>$link]; 
+                        $no_subs++; 
+                    }
                     else $button[]=['text'=>"✅ $gettitle",'url'=>$link];
                 }
             }elseif($type=="social"){
@@ -54,35 +111,40 @@ function joinchat($id){
 }
 
 $update = json_decode(file_get_contents('php://input'));
-$message  = $update->message;
-$callback = $update->callback_query;
-$bot = bot('getme',['bot'])->result->username;
+$message  = $update->message ?? null;
+$callback = $update->callback_query ?? null;
+$bot = bot('getme',['bot'])->result->username ?? 'bot';
 
 if(isset($message)){
-    $contact = $message->contact;
-    $number  = $contact->phone_number;
+    $contact = $message->contact ?? null;
+    $number  = $contact->phone_number ?? null;
     $cid     = $message->chat->id;
-    $text    = $message->text;
+    $text    = $message->text ?? '';
     $mid     = $message->message_id;
-    $name    = $message->from->first_name;
+    $name    = $message->from->first_name ?? 'User';
 }
 if(isset($callback)){
     $data = $callback->data;
     $qid  = $callback->id;
     $cid  = $callback->message->chat->id;
     $mid  = $callback->message->message_id;
-    $name = $callback->from->first_name;
+    $name = $callback->from->first_name ?? 'User';
 }
 
 $new_key = generate();
 
 $res = mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid'");
+$uid = null; $balance = 0; $payment = 0; $step = 'null';
 while($a=mysqli_fetch_assoc($res)){
-    $uid=$a['id']; $balance=$a['balance']; $payment=$a['deposit']; $step=$a['step'];
+    $uid=$a['id']; 
+    $balance=$a['balance']; 
+    $payment=$a['deposit']; 
+    $step=$a['step'] ?? 'null';
 }
 
 if(isset($message)){
-    if(!mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid'"))){
+    $check_user = mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid'");
+    if(!mysqli_fetch_assoc($check_user)){
         mysqli_query($connect,"INSERT INTO users(user_id,balance,deposit,date,time,action) VALUES('$cid','0','0','$sana','$soat','member')");
     }
 }
