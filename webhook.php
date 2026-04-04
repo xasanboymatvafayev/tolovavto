@@ -2,14 +2,14 @@
 require_once __DIR__ . '/config.php';
 header("Content-Type: application/json");
 
-// 🔐 Faqat POST
+// 🔐 Faqat POST so'rovlarni qabul qilish
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['status' => 'error', 'message' => 'Only POST allowed']);
     exit;
 }
 
-// 📥 DATA
+// 📥 JSON DATA olish
 $raw = file_get_contents('php://input');
 $data = json_decode($raw, true);
 if (!$data) {
@@ -18,16 +18,16 @@ if (!$data) {
     exit;
 }
 
-// 📩 EMAIL BODY
+// 📩 Email matnlarini olish
 $plain = $data['plain'] ?? '';
 $html = $data['html'] ?? '';
-$body = $plain . " " . $html;
+$body = $plain . " " . strip_tags($html);
 
 $subject = $data['headers']['subject'] ?? '';
 $from = $data['envelope']['from'] ?? '';
 $message_id = $data['headers']['message-id'] ?? uniqid();
 
-// 🔗 LINKLARNI TOPISH
+// 🔗 TASDIQLASH LINKLARNI TOPISH
 preg_match_all('/https?:\/\/[^\s"\']+/', $body, $link_matches);
 $links = $link_matches[0];
 $verify_links = array_filter($links, function($l){
@@ -38,17 +38,11 @@ $verify_links = array_filter($links, function($l){
 });
 $real_link = reset($verify_links);
 
-// 🔢 VERIFICATION KOD
-preg_match_all('/\b\d{4,6}\b/', $body, $code_matches);
-$codes = array_unique($code_matches[0]);
-$real_code = end($codes);
-
 // 💾 DEBUG LOG
 file_put_contents("debug_email.txt", 
 "FROM: $from
 SUBJECT: $subject
 LINK: $real_link
-CODE: $real_code
 BODY:
 $body
 ======================
@@ -62,14 +56,9 @@ function sendTelegram($text, $bot_token, $chat_id) {
     @file_get_contents("https://api.telegram.org/bot$bot_token/sendMessage?chat_id=$chat_id&text=" . urlencode($text));
 }
 
-// 🔐 TASDIQLASH LINK
+// 🔗 TASDIQLASH LINK YUBORISH
 if ($real_link) {
     sendTelegram("🔗 Tasdiqlash link:\n" . $real_link, $bot_token, $chat_id);
-}
-
-// 🔐 VERIFICATION KOD
-if ($real_code && !$real_link) {
-    sendTelegram("🔐 Kod: " . $real_code, $bot_token, $chat_id);
 }
 
 // 💰 PAYMENT PARSE
@@ -83,36 +72,29 @@ $balance = null;
 $merchant = null;
 $date = null;
 
-// SUMMA TOPISH (har doim raqam + UZS)
-if (preg_match('/(\d[\d\s\.,]*)\s*UZS/i', $body, $m)) {
+// --- Summa aniqlash
+if (preg_match('/(?:➕|➖|Summa:)\s*([\d\s\.,]+)\s*UZS/i', $body, $m)) {
     $amount = format_amount($m[1]);
 }
 
-// BALANS (agar mavjud bo‘lsa)
-if (preg_match('/💵 Balans:\s*([\d\s\.,]+)/u', $body, $m)) {
-    $balance = format_amount($m[1]);
-}
+// --- Balans
+if (preg_match('/💵 Balans:\s*([\d\s\.,]+)/u', $body, $m)) $balance = format_amount($m[1]);
 
-// MERCHANT
-if (preg_match('/🏪 Manba:\s*(.+)/u', $body, $m)) {
-    $merchant = trim($m[1]);
-}
+// --- Merchant
+if (preg_match('/🏪 Manba:\s*(.+)/u', $body, $m)) $merchant = trim($m[1]);
 
-// DATE
-if (preg_match('/🕒\s*([\d:\s\.]+)/u', $body, $m)) {
-    $date = trim($m[1]);
-} else {
-    $date = date('d.m.Y H:i');
-}
+// --- Vaqt
+if (preg_match('/🕒\s*([\d:\s\.]+)/u', $body, $m)) $date = trim($m[1]);
+else $date = date('d.m.Y H:i');
 
-// ❌ AGAR PAYMENT EMAS
+// ❌ Agar payment bo'lmasa
 if (!$amount) {
     http_response_code(200);
     echo json_encode(['status' => 'skip']);
     exit;
 }
 
-// 🔁 DUPLICATE CHECK
+// 🔁 Duplicate tekshiruv
 $check = mysqli_query($connect, "SELECT id FROM payments WHERE message_id = '" . mysqli_real_escape_string($connect, $message_id) . "'");
 if (mysqli_num_rows($check) > 0) {
     http_response_code(200);
@@ -120,8 +102,8 @@ if (mysqli_num_rows($check) > 0) {
     exit;
 }
 
-// 💾 DB SAVE
-$amount_esc = (int)$amount;
+// 💾 DB GA SAQLASH
+$amount_esc = $amount;
 $merchant_esc = mysqli_real_escape_string($connect, $merchant ?? 'Unknown');
 $date_esc = mysqli_real_escape_string($connect, $date);
 $msg_id_esc = mysqli_real_escape_string($connect, $message_id);
@@ -133,11 +115,10 @@ $insert = mysqli_query($connect, "INSERT INTO payments
 VALUES 
 ('$msg_id_esc', '$amount_esc', '$merchant_esc', '$date_esc', 'UZCARD', '$balance_esc', '$body_esc', NOW())");
 
-// 📤 TELEGRAM XABAR (human-readable)
+// 📤 TELEGRAM XABAR
 if ($insert) {
-    // 🔹 O’tkazma yoki To’lov aniqlash
+    // Pul tushsa → 🟢 O’tkazma, pul chiqsa → 🔴 To’lov
     $is_credit = preg_match('/➕|POPOLN|TO UZCARD|SCHETA/i', $body);
-
     $status_emoji = $is_credit ? "🟢 O'tkazma" : "🔴 To'lov";
     $sum_emoji = $is_credit ? "➕" : "➖";
 
@@ -146,11 +127,9 @@ if ($insert) {
     $telegram_msg .= "━━━━━━━━━━━━━━\n";
     $telegram_msg .= "$sum_emoji Summa: " . number_format($amount, 0, '.', ' ') . " UZS\n";
 
-    if (preg_match('/\*\*\*\*\s*(\d{4})/', $body, $m)) {
-        $card_last = $m[1];
-    } else {
-        $card_last = "XXXX";
-    }
+    if (preg_match('/\*\*\*\*\s*(\d{4})/', $body, $m)) $card_last = $m[1];
+    else $card_last = "XXXX";
+
     $telegram_msg .= "💳 Karta: **** $card_last\n";
     $telegram_msg .= "🏪 Manba: " . ($merchant ?? "Unknown") . "\n";
     $telegram_msg .= "🕒 Vaqt: $date\n";
@@ -158,11 +137,8 @@ if ($insert) {
     $telegram_msg .= "💵 Balans: " . number_format($balance_esc, 2, '.', ' ') . " UZS";
 
     sendTelegram($telegram_msg, $bot_token, $chat_id);
-
-    http_response_code(200);
-    echo json_encode(['status' => 'success']);
-} else {
-    http_response_code(500);
-    echo json_encode(['status' => 'error']);
 }
+
+http_response_code(200);
+echo json_encode(['status' => 'success']);
 ?>
