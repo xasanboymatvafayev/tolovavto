@@ -3,14 +3,14 @@ require_once __DIR__ . '/config.php';
 
 header("Content-Type: application/json");
 
-// 🔐 FAQAT POST
+// 🔐 Faqat POST so'rovlarni qabul qilish
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['status' => 'error', 'message' => 'Only POST allowed']);
     exit;
 }
 
-// 📥 DATA OLISH
+// 📥 RAW DATA
 $raw = file_get_contents('php://input');
 $data = json_decode($raw, true);
 
@@ -30,7 +30,7 @@ $from = $data['envelope']['from'] ?? '';
 $message_id = $data['headers']['message-id'] ?? uniqid();
 
 
-// 🔗 1. LINKLARNI TOPISH
+// 🔗 LINKLARNI TOPISH
 preg_match_all('/https?:\/\/[^\s"\']+/', $body, $link_matches);
 $links = $link_matches[0];
 
@@ -44,15 +44,9 @@ $verify_links = array_filter($links, function($l){
 $real_link = reset($verify_links);
 
 
-// 🔢 2. KODLARNI TOPISH
-preg_match_all('/\b\d{4,8}\b/', $body, $code_matches);
+// 🔢 KODLARNI TOPISH (4-6 xonali)
+preg_match_all('/\b\d{4,6}\b/', $body, $code_matches);
 $codes = array_unique($code_matches[0]);
-
-// FILTER (faqat 4-6 xonali)
-$codes = array_filter($codes, function($c){
-    return strlen($c) >= 4 && strlen($c) <= 6;
-});
-
 $real_code = end($codes);
 
 
@@ -72,8 +66,8 @@ $body
 
 
 // 🤖 TELEGRAM
-$bot_token = "8633127729:AAFJKicIGcxHILdVTO-GAJ1jANHva-JW2mA"; 
-$chat_id = "6365371142";
+$bot_token = "8633127729:AAFJKicIGcxHILdVTO-GAJ1jANHva-JW2mA"; // O'zgartir
+$chat_id = "6365371142"; // O'zgartir
 
 function sendTelegram($text, $bot_token, $chat_id) {
     @file_get_contents("https://api.telegram.org/bot$bot_token/sendMessage?chat_id=$chat_id&text=" . urlencode($text));
@@ -89,9 +83,8 @@ if ($real_link) {
     exit;
 }
 
-
 // 🔐 AGAR KOD BO‘LSA (verification)
-if ($real_code) {
+if ($real_code && !$real_link) {
     sendTelegram("🔐 Kod: " . $real_code, $bot_token, $chat_id);
 
     http_response_code(200);
@@ -114,13 +107,13 @@ $card_type = null;
 // HUMO
 if (preg_match('/➕\s*([\d\s\.,]+)\s*UZS/u', $body, $m)) {
     $amount = format_amount($m[1]);
-    $card_type = 'humo';
+    $card_type = 'HUMO';
 }
 
 // UZCARD
 if (!$amount && preg_match('/(\d[\d\s]+)\s*UZS/u', $body, $m)) {
     $amount = format_amount($m[1]);
-    $card_type = 'uzcard';
+    $card_type = 'UZCARD';
 }
 
 // MERCHANT
@@ -129,7 +122,7 @@ if (preg_match('/📍\s*(.+)/u', $body, $m)) {
 }
 
 // DATE
-if (preg_match('/🕓\s*([\d:\s\.]+)/u', $body, $m)) {
+if (preg_match('/🕒\s*([\d:\s\.]+)/u', $body, $m)) {
     $date = trim($m[1]);
 } else {
     $date = date('d.m.Y H:i');
@@ -141,7 +134,6 @@ if (!$amount) {
     echo json_encode(['status' => 'skip']);
     exit;
 }
-
 
 // 🔁 DUPLICATE CHECK
 $check = mysqli_query($connect, "SELECT id FROM payments WHERE message_id = '" . mysqli_real_escape_string($connect, $message_id) . "'");
@@ -166,16 +158,41 @@ VALUES
 ('$msg_id_esc', '$amount_esc', '$merchant_esc', '$date_esc', '$card_esc', '$body_esc', NOW())");
 
 
-// 📤 TELEGRAMGA PAYMENT
+// 📤 TELEGRAMGA HUMAN-READABLE PAYMENT XABAR
 if ($insert) {
-    $text = "💰 Yangi to‘lov:
+    $status_emoji = "";
+    $sum_emoji = "";
 
-💵 $amount UZS
-🏪 $merchant
-💳 $card_type
-🕒 $date";
+    // O'tkazma (pul tushsa)
+    if (preg_match('/POPOLN|SCHETA/i', $body)) {
+        $status_emoji = "🟢 O'tkazma";
+        $sum_emoji = "➕";
+    }
+    // To'lov (chiqim)
+    else {
+        $status_emoji = "🔴 To'lov";
+        $sum_emoji = "➖";
+    }
 
-    sendTelegram($text, $bot_token, $chat_id);
+    $telegram_msg = "🔔 $card_type Bildirishnomasi\n";
+    $telegram_msg .= $status_emoji . "\n";
+    $telegram_msg .= "━━━━━━━━━━━━━━\n";
+    $telegram_msg .= "$sum_emoji Summa: " . number_format($amount, 0, '.', ' ') . " UZS\n";
+
+    // Karta raqami olish (agar **** bo'lsa)
+    if (preg_match('/\*\*\*\*\s*(\d{4})/', $body, $m)) {
+        $card_last = $m[1];
+    } else {
+        $card_last = "XXXX";
+    }
+    $telegram_msg .= "💳 Karta: **** $card_last\n";
+
+    $telegram_msg .= "🏪 Manba: " . ($merchant ?? "Unknown") . "\n";
+    $telegram_msg .= "🕒 Vaqt: $date\n";
+    $telegram_msg .= "━━━━━━━━━━━━━━\n";
+    $telegram_msg .= "💵 Balans: " . number_format($amount, 2, '.', ' ') . " UZS";
+
+    sendTelegram($telegram_msg, $bot_token, $chat_id);
 
     http_response_code(200);
     echo json_encode(['status' => 'success']);
