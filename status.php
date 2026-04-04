@@ -17,7 +17,7 @@ $amount = format_amount($_GET['amount']);
 $order  = isset($_GET['order']) ? mysqli_real_escape_string($connect, $_GET['order']) : null;
 
 // Vaqt oralig'i — so'nggi 30 daqiqa ichidagi to'lovlar
-$time_limit = date('Y-m-d H:i:s', strtotime('-30 minutes'));
+$time_limit = date('Y-m-d H:i:s', strtotime('-5 minutes'));
 
 // Avval shu order bilan bog'langan to'lov bormi tekshir
 if ($order) {
