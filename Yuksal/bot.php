@@ -174,14 +174,28 @@ if($step=="uzcard_auto"){
 
 // To'lovni tekshirish
 if(mb_stripos($data,"check_pay=")!==false){
+    // Avval botni "qotib qolishdan" saqlash uchun javob beramiz
+    bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"🔄 Tekshirilmoqda..."]);
+
     $parts=explode("=",$data); $amount_c=$parts[1]; $order_c=$parts[2];
-    $res=@file_get_contents("https://$sub_domen/status.php?amount=$amount_c&order=$order_c");
-    $json=json_decode($res,true);
-    if(($json['result']['status']??'')=="paid"){
+
+    // payments jadvalidan tekshirish (status.php ga murojaat)
+    $ch = curl_init("https://$sub_domen/status.php?amount=$amount_c&order=$order_c");
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    $res = curl_exec($ch);
+    curl_close($ch);
+
+    $json = json_decode($res, true);
+
+    if(($json['result']['status']??'')==="paid"){
         mysqli_query($connect,"UPDATE users SET balance=balance+$amount_c, deposit=deposit+$amount_c WHERE user_id='$cid'");
-        bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"✅ <b>To'lov tasdiqlandi!</b>\n\n💵 <b>$amount_c</b> so'm hisobingizga qo'shildi!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
+        bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"✅ <b>To'lov tasdiqlandi!</b>\n\n💵 <b>".number_format($amount_c,0,'.',' ')."</b> so'm hisobingizga qo'shildi!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
     }else{
-        bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"⏳ To'lov hali kelmagan! 5 daqiqa ichida to'lang.",'show_alert'=>true]);
+        bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"⏳ <b>To'lov hali kelmagan!</b>\n\n5 daqiqa ichida to'lang va qayta tekshiring.",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
+            [['text'=>"🔄 Qayta tekshirish",'callback_data'=>"check_pay=$amount_c=$order_c"]],
+            [['text'=>"❌ Bekor qilish",'callback_data'=>"cancel_by_order=$order_c"]],
+        ]])]);
     }
 }
 
@@ -197,6 +211,13 @@ if(mb_stripos($data,"cancelpayy=")!==false){
     bot('SendMessage',['chat_id'=>$cid,'text'=>"❌ <b>Bekor qilindi!</b>",'parse_mode'=>'html','reply_markup'=>$m]);
 }
 if($data=="delete_data") bot('DeleteMessage',['chat_id'=>$cid,'message_id'=>$mid]);
+
+// Order boyicha bekor qilish
+if(mb_stripos($data,"cancel_by_order=")!==false){
+    $order_c=explode("=",$data)[1];
+    mysqli_query($connect,"DELETE FROM payments WHERE used_order='".mysqli_real_escape_string($connect,$order_c)."' AND user_id='$cid'");
+    bot("editMessageText",["chat_id"=>$cid,"message_id"=>$mid,"text"=>"❌ <b>Tolov bekor qilindi!</b>","parse_mode"=>"html","reply_markup"=>json_encode(["inline_keyboard"=>[]])]);
+}
 
 // API Docs
 if($text=="📖 API Hujjatlar"){
