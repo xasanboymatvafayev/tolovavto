@@ -199,7 +199,7 @@ if($text=="/start"||$text=="⏪ Ortga"){
 
 // Qo'llanma
 if($text=="📕 Qoʻllanma"){
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>📘 Qoʻllanma:</b>\n\nKassa qoʻshib admindan tasdiqlatasiz. Tasdiqlangach oylik toʻlovni toʻlaysiz va hisobni ulaysiz.\n\n📣 Yordam: @Matvafaevv",'parse_mode'=>'html','reply_markup'=>$m]);
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>📘 Qoʻllanma:</b>\n\nKassa qoʻshib admindan tasdiqlatasiz. Tasdiqlangach oylik toʻlovni toʻlaysiz va hisobni ulaysiz.\n\n📣 Yordam: @xmtvv1",'parse_mode'=>'html','reply_markup'=>$m]);
     exit;
 }
 
@@ -453,7 +453,7 @@ if(mb_stripos($data,"req_connect=")!==false){
     $parts=explode("=",$data); $shop_id_r=$parts[1]; $user_id_r=$parts[2];
     bot('sendMessage',['chat_id'=>$administrator,'text'=>"📨 <b>Kassa ulash so'rovi!</b>\n\n👤 Foydalanuvchi ID: <code>$user_id_r</code>\n🏪 Kassa ID: <code>$shop_id_r</code>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔗 Ulash",'callback_data'=>"admin_connect=$shop_id_r=$user_id_r"]]]])]);
     bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"✅ So'rov adminga yuborildi!",'show_alert'=>true]);
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"📨 <b>Kassa ulash uchun Administratorga murojaat qiling</b>\n\n👤 Sizning ID: <code>$cid</code>\n📧 Kassa uchun e-mail so'raladi, va sizga tushuntiriladi hamda ulab beriladi.\n\n👨‍💻 Admin: @Matvafaevv",'parse_mode'=>'html']);
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"📨 <b>Kassa ulash uchun Administratorga murojaat qiling</b>\n\n👤 Sizning ID: <code>$cid</code>\n📧 Kassa uchun e-mail so'raladi, va sizga tushuntiriladi hamda ulab beriladi.\n\n👨‍💻 Admin: @xmtvv1",'parse_mode'=>'html']);
 }
 
 // Admin paneldan kassa ulash
