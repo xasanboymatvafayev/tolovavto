@@ -75,39 +75,65 @@ checkChannelsTable($connect);
 
 function joinchat($id){
     global $connect, $administrator;
+    
+    // Admin bo'lsa tekshiruv shart emas
+    if($id == $administrator) return true;
+    
     $result = $connect->query("SELECT * FROM `channels`");
-    if($result->num_rows > 0 && $id != $administrator){
-        $no_subs = 0; $button = [];
-        while($row = $result->fetch_assoc()){
-            $type = $row['type']; 
-            $link = $row['link']; 
-            $channelID = $row['channelID'];
-            $chat_id_col = $row['chat_id'] ?? $channelID;
-            
-            $gettitle = bot('getchat',['chat_id'=>$chat_id_col])->result->title ?? "Kanal";
-            if($type=="lock"||$type=="request"){
-                if($type=="request"){
-                    $c = $connect->query("SELECT * FROM `requests` WHERE user_id='$id' AND chat_id='$chat_id_col'");
-                    if($c && $c->num_rows>0) $button[]=['text'=>"✅ $gettitle",'url'=>$link];
-                    else{ $button[]=['text'=>"❌ $gettitle",'url'=>$link]; $no_subs++; }
-                }elseif($type=="lock"){
-                    $s = bot('getChatMember',['chat_id'=>$chat_id_col,'user_id'=>$id])->result->status ?? 'left';
-                    if($s=="left" || $s=="kicked"){ 
-                        $button[]=['text'=>"❌ $gettitle",'url'=>$link]; 
-                        $no_subs++; 
-                    }
-                    else $button[]=['text'=>"✅ $gettitle",'url'=>$link];
-                }
-            }elseif($type=="social"){
-                $button[]=['text'=>base64_decode($row['title']),'url'=>$link];
+    if($result->num_rows == 0) return true;
+    
+    $no_subs = 0; 
+    $button = [];
+    
+    while($row = $result->fetch_assoc()){
+        $type = $row['type'];
+        $link = $row['link'];
+        
+        // chat_id yoki channelID dan foydalanish
+        $channelID = !empty($row['chat_id']) ? $row['chat_id'] : $row['channelID'];
+        if(empty($channelID)) continue;
+        
+        // Kanal nomini olish
+        $get_chat = bot('getchat',['chat_id'=>$channelID]);
+        $gettitle = isset($get_chat->result->title) ? $get_chat->result->title : "Kanal";
+        
+        if($type == "lock"){
+            $member = bot('getChatMember',['chat_id'=>$channelID,'user_id'=>$id]);
+            $status = isset($member->result->status) ? $member->result->status : 'left';
+            if($status == "left" || $status == "kicked"){ 
+                $button[] = ['text'=>"❌ $gettitle",'url'=>$link]; 
+                $no_subs++; 
+            } else {
+                $button[] = ['text'=>"✅ $gettitle",'url'=>$link];
             }
         }
-        if($no_subs>0){
-            $button[]=['text'=>"🔄 Tekshirish",'callback_data'=>"result"];
-            bot('sendMessage',['chat_id'=>$id,'text'=>"⛔ Kanallarga obuna bo'ling:",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>array_chunk($button,1)])]);
-            exit;
-        } else return true;
-    } else return true;
+        elseif($type == "request"){
+            $c = $connect->query("SELECT * FROM `requests` WHERE user_id='$id' AND chat_id='$channelID'");
+            if($c && $c->num_rows > 0){
+                $button[] = ['text'=>"✅ $gettitle",'url'=>$link];
+            } else { 
+                $button[] = ['text'=>"❌ $gettitle",'url'=>$link]; 
+                $no_subs++; 
+            }
+        }
+        elseif($type == "social"){
+            $title = isset($row['title']) ? base64_decode($row['title']) : "Havola";
+            $button[] = ['text'=>$title,'url'=>$link];
+        }
+    }
+    
+    if($no_subs > 0){
+        $button[] = ['text'=>"🔄 Tekshirish",'callback_data'=>"result"];
+        bot('sendMessage',[
+            'chat_id'=>$id,
+            'text'=>"⛔ Kanallarga obuna bo'ling:",
+            'parse_mode'=>'html',
+            'reply_markup'=>json_encode(['inline_keyboard'=>array_chunk($button,1)])
+        ]);
+        return false;
+    }
+    
+    return true;
 }
 
 $update = json_decode(file_get_contents('php://input'));
