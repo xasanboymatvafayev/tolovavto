@@ -59,7 +59,7 @@ $body
 
 // 🤖 TELEGRAM CONFIG
 $bot_token = "8633127729:AAFJKicIGcxHILdVTO-GAJ1jANHva-JW2mA"; // O'zgartir
-$chat_id = "6365371142";
+$chat_id = "6365371142"; // O'zgartir
 
 function sendTelegram($text, $bot_token, $chat_id) {
     @file_get_contents("https://api.telegram.org/bot$bot_token/sendMessage?chat_id=$chat_id&text=" . urlencode($text));
@@ -68,17 +68,11 @@ function sendTelegram($text, $bot_token, $chat_id) {
 // 🔐 TASDIQLASH LINK
 if ($real_link) {
     sendTelegram("🔗 Tasdiqlash link:\n" . $real_link, $bot_token, $chat_id);
-    http_response_code(200);
-    echo json_encode(['status' => 'link_detected']);
-    exit;
 }
 
 // 🔐 VERIFICATION KOD
 if ($real_code && !$real_link) {
     sendTelegram("🔐 Kod: " . $real_code, $bot_token, $chat_id);
-    http_response_code(200);
-    echo json_encode(['status' => 'code_detected']);
-    exit;
 }
 
 // 💰 PAYMENT PARSE
@@ -93,7 +87,7 @@ $date = null;
 $card_type = null;
 $balance = null;
 
-// SUMMA TOPISH (UZS bilan)
+// SUMMA TOPISH (har doim raqam + UZS)
 if (preg_match('/(\d[\d\s]+)\s*UZS/u', $body, $m)) {
     $amount = format_amount($m[1]);
 }
@@ -149,8 +143,8 @@ if ($insert) {
     $status_emoji = "";
     $sum_emoji = "";
 
-    // O'tkazma yoki To'lov aniqlash ➕ / ➖
-    if (strpos($body, '➕') !== false) {
+    // O'tkazma yoki To'lov aniqlash
+    if (preg_match('/➕|POPOLN|TO UZCARD/i', $body)) {
         $status_emoji = "🟢 O'tkazma";
         $sum_emoji = "➕";
     } else {
