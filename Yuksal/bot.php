@@ -6,6 +6,15 @@ require (__DIR__ . "/../config.php");
 $administrator = getenv('ADMIN_ID') ?: "7678663640";
 $admin = [$administrator];
 
+// Settings jadvalini avtomatik yaratish
+mysqli_query($connect, "CREATE TABLE IF NOT EXISTS `settings` (
+  `id`    int NOT NULL AUTO_INCREMENT,
+  `key`   varchar(100) NOT NULL UNIQUE,
+  `value` varchar(255) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+mysqli_query($connect, "INSERT IGNORE INTO `settings` (`key`,`value`) VALUES ('month_price','20000')");
+
 function bot($method, $datas=[]){
     $ch = curl_init("https://api.telegram.org/bot".API_KEY."/".$method);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -105,7 +114,8 @@ $menu_p = json_encode(['resize_keyboard'=>true,'keyboard'=>[
     [['text'=>"📕 Qoʻllanma"],['text'=>"📖 API Hujjatlar"]],
     [['text'=>"🗄️ Boshqaruv"]]
 ]]);
-$panel  = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"📊 Statistika"],['text'=>"📢 Kanallar"]],[['text'=>"🗑️ Kanal o'chirish"]],[['text'=>"👤 Foydalanuvchi"],['text'=>"📨 Xabar yuborish"]],[['text'=>"🔗 Kassa ulash"]],[['text'=>"⏪ Ortga"]]]]);
+$panel  = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"📊 Statistika"],['text'=>"📢 Kanallar"]],[['text'=>"🗑️ Kanal o'chirish"]],[['text'=>"👤 Foydalanuvchi"],['text'=>"📨 Xabar yuborish"]],[['text'=>"🔗 Kassa ulash"]],[['text'=>"💰 Oylik narh"]],[['text'=>"⏪ Ortga"]]]]);
+
 $back   = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"⏪ Ortga"]]]]);
 $m = in_array($cid,$admin) ? $menu_p : $menu;
 
@@ -577,7 +587,10 @@ if(mb_stripos($data,"kassa_payment=")!==false){
     $parts=explode("=",$data); $shop_id_p=$parts[1]; $set_id_p=$parts[2];
     $rew=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid'"));
     $bal=$rew['balance'];
-    $req=in_array($cid,$admin)?0:20000;
+    $settings_r=mysqli_fetch_assoc(mysqli_query($connect,"SELECT value FROM settings WHERE `key`='month_price'"));
+    $month_price=(int)($settings_r['value']??20000);
+    $req=in_array($cid,$admin)?0:$month_price;
+
     if($bal>=$req){
         $new_bal=$bal-$req;
         mysqli_query($connect,"UPDATE users SET balance=$new_bal WHERE user_id='$cid'");
@@ -823,6 +836,38 @@ if($text=="🗄️ Boshqaruv"||$text=="/panel"){
         bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>Administrator paneli!</b>",'parse_mode'=>'html','reply_markup'=>$panel]);
         exit;
     }
+}
+
+// OYLIK NARH BOSHQARUV (admin)
+if($text=="💰 Oylik narh"&&in_array($cid,$admin)){
+    $cur=mysqli_fetch_assoc(mysqli_query($connect,"SELECT value FROM settings WHERE `key`='month_price'"));
+    $cur_price=number_format((int)($cur['value']??20000),0,'.',' ');
+    bot('sendMessage',['chat_id'=>$cid,
+        'text'=>"💰 <b>Oylik to'lov narhi</b>\n\nHozirgi narh: <b>$cur_price</b> so'm\n\nYangi narh (so'mda) yuboring:",
+        'parse_mode'=>'html',
+        'reply_markup'=>$panel]);
+    mysqli_query($connect,"UPDATE users SET step='set_month_price' WHERE user_id='$cid'");
+    exit;
+}
+if($step=="set_month_price"&&in_array($cid,$admin)){
+    $new_price=preg_replace('/[^0-9]/','',trim($text));
+    if(!$new_price||$new_price<1000){
+        bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ Noto'g'ri narh! Minimal 1000 so'm.",'parse_mode'=>'html','reply_markup'=>$panel]);
+        exit;
+    }
+    // settings jadvalida yangilash yoki yaratish
+    $exists=mysqli_num_rows(mysqli_query($connect,"SELECT id FROM settings WHERE `key`='month_price'"));
+    if($exists>0){
+        mysqli_query($connect,"UPDATE settings SET value='$new_price' WHERE `key`='month_price'");
+    } else {
+        mysqli_query($connect,"INSERT INTO settings (`key`,value) VALUES('month_price','$new_price')");
+    }
+    mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
+    $fmt=number_format((int)$new_price,0,'.',' ');
+    bot('sendMessage',['chat_id'=>$cid,
+        'text'=>"✅ <b>Oylik narh yangilandi!</b>\n\n💰 Yangi narh: <b>$fmt</b> so'm",
+        'parse_mode'=>'html','reply_markup'=>$panel]);
+    exit;
 }
 
 if($text=="📊 Statistika"&&in_array($cid,$admin)){
