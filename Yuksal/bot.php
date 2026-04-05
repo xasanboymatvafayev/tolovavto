@@ -129,12 +129,12 @@ if($text=="📕 Qoʻllanma"){
 }
 
 if($text=="💵 Hisobim"){
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"👔 <b>Sizning hisobingiz!</b>\n\n• ID: <code>$uid</code>\n• Balans: <b>$balance</b> so'm\n• Kiritgan: <b>$payment</b> so'm",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔄 Yangilash",'callback_data'=>"Hisobim"]]]])]);
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"👔 <b>Sizning hisobingiz!</b>\n\n• ID: <code>$uid</code>\n• Balans: <b>$balance</b> so'm\n• Kiritgan: <b>$payment</b> so'm",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔄 Yangilash",'callback_data'=>"Hisobim"]],[['text'=>"📋 To'ldirish tarixi",'callback_data'=>"user_history=1"]]]])]);
     exit;
 }
 if($data=="Hisobim"){
     $a2=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid'"));
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"👔 <b>Sizning hisobingiz!</b>\n\n• ID: <code>".$a2['id']."</code>\n• Balans: <b>".$a2['balance']."</b> so'm\n• Kiritgan: <b>".$a2['deposit']."</b> so'm",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔄 Yangilash",'callback_data'=>"Hisobim"]]]])]);
+    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"👔 <b>Sizning hisobingiz!</b>\n\n• ID: <code>".$a2['id']."</code>\n• Balans: <b>".$a2['balance']."</b> so'm\n• Kiritgan: <b>".$a2['deposit']."</b> so'm",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔄 Yangilash",'callback_data'=>"Hisobim"]],[['text'=>"📋 To'ldirish tarixi",'callback_data'=>"user_history=1"]]]])]);
     exit;
 }
 
@@ -439,29 +439,99 @@ if(mb_stripos($data,"kassa_sozlama=")!==false){
     exit;
 }
 
-// === TO'LOVLAR TARIXI (rasmdagi ko'rinish) ===
-if(mb_stripos($data,"kassa_history=")!==false){
-    $parts=explode("=",$data); $shop_id_h=$parts[1]; $set_id=$parts[2]; $page=(int)($parts[3]??1);
-    $per_page=10; $offset=($page-1)*$per_page;
-    $shop_id_h_esc=mysqli_real_escape_string($connect,$shop_id_h);
+// === FOYDALANUVCHI TO'LDIRISH TARIXI ===
+if(mb_stripos($data,"user_history=")!==false){
+    $page=(int)(explode("=",$data)[1]??1);
+    $per_page=8; $offset=($page-1)*$per_page;
+    $cid_esc=mysqli_real_escape_string($connect,$cid);
 
+    // checkout jadvalidan (bot deposit) + payments (kartaga tushgan)
     $total_r=mysqli_fetch_assoc(mysqli_query($connect,
-        "SELECT COUNT(*) as c FROM checkout WHERE status='paid' AND shop_id='$shop_id_h_esc'"
+        "SELECT COUNT(*) as c FROM checkout WHERE user_id='$cid_esc' AND shop_id='127000' AND status='paid'"
     ));
     $total=(int)($total_r['c']??0);
     $total_pages=max(1,ceil($total/$per_page));
 
     $res=mysqli_query($connect,
-        "SELECT * FROM checkout WHERE status='paid' AND shop_id='$shop_id_h_esc' 
-         ORDER BY date DESC LIMIT $per_page OFFSET $offset"
+        "SELECT c.amount, c.date,
+                p.merchant, p.date as pay_date, p.card_type
+         FROM checkout c
+         LEFT JOIN payments p ON p.used_order = c.`order`
+         WHERE c.user_id='$cid_esc' AND c.shop_id='127000' AND c.status='paid'
+         ORDER BY c.date DESC LIMIT $per_page OFFSET $offset"
+    );
+
+    $user_bal=mysqli_fetch_assoc(mysqli_query($connect,"SELECT balance,deposit FROM users WHERE user_id='$cid_esc'"));
+    $bal_show=number_format((int)($user_bal['balance']??0),0,'.',' ');
+    $dep_show=number_format((int)($user_bal['deposit']??0),0,'.',' ');
+
+    if($res && mysqli_num_rows($res)>0){
+        $list=""; $i=$offset+1;
+        while($row=mysqli_fetch_assoc($res)){
+            $amt=number_format((int)$row['amount'],0,'.',' ');
+            $dt=substr($row['date'],0,16);
+            $merchant=$row['merchant']??'';
+            $pay_dt=substr($row['pay_date']??'',0,16);
+            $extra=(!empty($merchant))? "\n💳 $merchant" : "";
+            if(!empty($pay_dt)) $extra.="\n🕒 Bank: $pay_dt";
+            $list.="<b>$i</b>. ✅ <b>+$amt</b> so'm\n📅 $dt".$extra."\n\n";
+            $i++;
+        }
+        $txt="📋 <b>To'ldirish tarixi</b>\n\n💵 Balans: <b>$bal_show</b> so'm\n📥 Jami kiritgan: <b>$dep_show</b> so'm\n\n$list";
+    } else {
+        $txt="📋 <b>To'ldirish tarixi</b>\n\n💵 Balans: <b>$bal_show</b> so'm\n\n❌ Hali to'ldirish tarixi yo'q.";
+    }
+
+    $nav=[];
+    if($page>1) $nav[]=['text'=>"◀️ Oldingi",'callback_data'=>"user_history=".($page-1)];
+    if($total_pages>1) $nav[]=['text'=>"$page/$total_pages",'callback_data'=>"noop"];
+    if($page<$total_pages) $nav[]=['text'=>"Keyingi ▶️",'callback_data'=>"user_history=".($page+1)];
+    $kb=['inline_keyboard'=>[]];
+    if(!empty($nav)) $kb['inline_keyboard'][]=$nav;
+    $kb['inline_keyboard'][]=[['text'=>"⬅️ Ortga",'callback_data'=>"Hisobim"]];
+
+    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
+        'text'=>$txt,'parse_mode'=>'html','reply_markup'=>json_encode($kb)]);
+    exit;
+}
+
+// === TO'LOVLAR TARIXI (checkout + payments birlashtirgan) ===
+if(mb_stripos($data,"kassa_history=")!==false){
+    $parts=explode("=",$data); $shop_id_h=$parts[1]; $set_id=$parts[2]; $page=(int)($parts[3]??1);
+    $per_page=10; $offset=($page-1)*$per_page;
+    $shop_id_h_esc=mysqli_real_escape_string($connect,$shop_id_h);
+
+    // Jami: checkout (to'lovlar) + payments (kartaga tushgan) birlashtirish
+    $total_co=mysqli_fetch_assoc(mysqli_query($connect,
+        "SELECT COUNT(*) as c FROM checkout WHERE status='paid' AND shop_id='$shop_id_h_esc'"
+    ))['c'];
+    $total_pa=mysqli_fetch_assoc(mysqli_query($connect,
+        "SELECT COUNT(*) as c FROM payments WHERE status='used' AND used_order IN (SELECT `order` FROM checkout WHERE shop_id='$shop_id_h_esc')"
+    ))['c'];
+    $total=(int)$total_co;
+    $total_pages=max(1,ceil($total/$per_page));
+
+    $res=mysqli_query($connect,
+        "SELECT c.`order`, c.amount, c.date,
+                p.merchant, p.card_type, p.date as pay_date
+         FROM checkout c
+         LEFT JOIN payments p ON p.used_order = c.`order`
+         WHERE c.status='paid' AND c.shop_id='$shop_id_h_esc'
+         ORDER BY c.date DESC LIMIT $per_page OFFSET $offset"
     );
 
     if($res && mysqli_num_rows($res)>0){
         $list=""; $i=$offset+1;
         while($row=mysqli_fetch_assoc($res)){
-            $amt=number_format($row['amount'],0,'.',' ');
+            $amt=number_format((int)$row['amount'],0,'.',' ');
             $dt=substr($row['date'],0,16);
-            $list.="<b>$i</b>. 🟢 <b>$amt</b> so'm\n📆 $dt\n\n";
+            $merchant_show=$row['merchant']??'';
+            $pay_date=$row['pay_date']??'';
+            // Kartaga tushgan pul bo'lsa qo'shimcha info
+            $extra='';
+            if(!empty($merchant_show)) $extra.="\n💳 ".$merchant_show;
+            if(!empty($pay_date)) $extra.="\n🏦 Bank: ".substr($pay_date,0,16);
+            $list.="<b>$i</b>. ✅ <b>+$amt</b> so'm\n📆 $dt".$extra."\n\n";
             $i++;
         }
 
