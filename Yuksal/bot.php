@@ -151,27 +151,26 @@ if($data=="uzcard"){
 
 if($step=="uzcard_auto"){
     if(!is_numeric($text)){ bot('sendMessage',['chat_id'=>$cid,'text'=>"🔢 <b>Faqat raqam kiriting!</b>",'parse_mode'=>'html','reply_markup'=>$back]); exit; }
-    $amount=intval(trim($text));
-    if($amount<1000){ bot('sendMessage',['chat_id'=>$cid,'text'=>"⚠️ <b>Minimal 1000 so'm!</b>",'parse_mode'=>'html','reply_markup'=>$back]); exit; }
+    $amount_original=intval(trim($text));
+    if($amount_original<1000){ bot('sendMessage',['chat_id'=>$cid,'text'=>"⚠️ <b>Minimal 1000 so'm!</b>",'parse_mode'=>'html','reply_markup'=>$back]); exit; }
 
     // Vaqti o'tgan pending orderlarni tozala
     $expire_time = date('Y-m-d H:i:s', strtotime('-5 minutes'));
-    mysqli_query($connect,"UPDATE checkout SET status='canceled' WHERE shop_id='main' AND status='pending' AND date <= '$expire_time'");
+    mysqli_query($connect,"UPDATE checkout SET status='canceled' WHERE shop_id='127000' AND status='pending' AND date <= '$expire_time'");
 
-    // Foydalanuvchining faol orderi bormi?
+    // === Foydalanuvchining o'zining faol orderi bormi? ===
     $active_order = mysqli_fetch_assoc(mysqli_query($connect,
-        "SELECT * FROM checkout WHERE user_id='$cid' AND shop_id='main' AND status='pending' AND date > '$expire_time'"
+        "SELECT * FROM checkout WHERE user_id='$cid' AND shop_id='127000' AND status='pending' AND date > '$expire_time'"
     ));
     if($active_order){
-        $pay_url="https://$sub_domen/pay?order=".$active_order['order']."&shop_id=main";
-        // Kassaning karta raqamini ol
-        $main_shop = mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='main'"));
-        $card_show = $main_shop ? chunk_split(preg_replace('/\s+/','',$main_shop['card_number']),4,' ') : '5614 6835 8227 9246';
-        $card_raw  = $main_shop ? preg_replace('/\s+/','',$main_shop['card_number']) : '5614682588279246';
-        bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Faol to'lov mavjud!</b>\n\n💵 To'lash kerak: <b>".number_format($active_order['amount'],0,'.',' ')."</b> so'm\n⚠️ Aynan shu miqdorni yuboring!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
-            [['text'=>'💵 Miqdorni nusxalash','copy_text'=>['text'=>$active_order['amount']]]],
+        $pay_url="https://$sub_domen/pay?order=".$active_order['order']."&shop_id=127000";
+        $main_shop = mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='127000'"));
+        $card_raw  = ($main_shop && !empty($main_shop['card_number'])) ? preg_replace('/\s+/','',$main_shop['card_number']) : '5614683582279246';
+        $act_amount = $active_order['amount'];
+        bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Faol to'lovingiz mavjud!</b>\n\n💵 To'lash kerak: <b>".number_format($act_amount,0,'.',' ')."</b> so'm\n⚠️ Aynan shu miqdorni yuboring!\n\n❌ Bekor qilish uchun tugmani bosing.",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
+            [['text'=>'💵 Miqdorni nusxalash','copy_text'=>['text'=>$act_amount]]],
             [['text'=>'💳 Kartani nusxalash','copy_text'=>['text'=>$card_raw]]],
-            [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"chk=".$active_order['amount']."=".$active_order['order']]],
+            [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"chk=".$act_amount."=".$active_order['order']]],
             [['text'=>"🌐 Web to'lov",'url'=>$pay_url]],
             [['text'=>"❌ Bekor qilish",'callback_data'=>"cancel_order=".$active_order['order']]],
         ]])]);
@@ -179,33 +178,39 @@ if($step=="uzcard_auto"){
         exit;
     }
 
-    // Shu miqdor boshqa tomonidan band emasmi?
-    $busy = mysqli_fetch_assoc(mysqli_query($connect,
-        "SELECT * FROM checkout WHERE amount='$amount' AND shop_id='main' AND status='pending' AND date > '$expire_time'"
-    ));
-    if($busy){
-        bot('sendMessage',['chat_id'=>$cid,'text'=>"⚠️ <b>$amount</b> so'm hozirda boshqa foydalanuvchi tomonidan band.\n\nBoshqa miqdor kiriting yoki bir oz kuting.",'parse_mode'=>'html','reply_markup'=>$back]);
-        mysqli_query($connect,"UPDATE users SET step='uzcard_auto' WHERE user_id='$cid'");
-        exit;
+    // === Random offset: 50-150 so'm qo'shish (unique miqdor) ===
+    $offset = rand(50, 150);
+    $amount = $amount_original + $offset;
+
+    // Shu aniq miqdor band emasligini tekshir
+    $try = 0;
+    while($try < 10){
+        $busy = mysqli_fetch_assoc(mysqli_query($connect,
+            "SELECT id FROM checkout WHERE amount='$amount' AND shop_id='127000' AND status='pending' AND date > '$expire_time'"
+        ));
+        if(!$busy) break;
+        $offset = rand(50, 150);
+        $amount = $amount_original + $offset;
+        $try++;
     }
 
-    // === Kassaning karta raqamini olish ===
-    $main_shop = mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='main'"));
-    $card_raw  = ($main_shop && !empty($main_shop['card_number'])) ? preg_replace('/\s+/','',$main_shop['card_number']) : '5614682588279246';
+    // === Kassaning karta va bank ma'lumotlari ===
+    $main_shop = mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='127000'"));
+    $card_raw  = ($main_shop && !empty($main_shop['card_number'])) ? preg_replace('/\s+/','',$main_shop['card_number']) : '5614683582279246';
     $card_show = chunk_split($card_raw,4,' ');
 
-    // === checkout jadvaliga order yaratish (webhook shu orqali topadi!) ===
+    // === checkout jadvaliga order yaratish ===
     $order = generate();
     $today = date("Y-m-d H:i:s");
     mysqli_query($connect,
         "INSERT INTO checkout (`order`, shop_id, shop_key, amount, status, `over`, date, user_id)
-         VALUES ('$order', 'main', 'BOT', '$amount', 'pending', '5', '$today', '$cid')"
+         VALUES ('$order', '127000', 'OP004K6367', '$amount', 'pending', '5', '$today', '$cid')"
     );
 
-    $pay_url = "https://$sub_domen/pay?order=$order&shop_id=main";
+    $pay_url = "https://$sub_domen/pay?order=$order&shop_id=127000";
 
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"➡️ <b>To'lov kartasi:</b> <code>$card_show</code>\n\n💵 Miqdori: <code>$amount</code> so'm\n⏰ Kutish vaqti: <b>5</b> daqiqa\n✅ To'lov avtomatik qabul qilinadi\n\n👉🏻 Aynan <b>$amount</b> so'm yuboring!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
-        [['text'=>'💵 Miqdorni nusxalash','copy_text'=>['text'=>$amount]]],
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"➡️ <b>To'lov kartasi:</b> <code>$card_show</code>\n\n💵 Siz so'ragan: <b>".number_format($amount_original,0,'.',' ')."</b> so'm\n💰 To'lash kerak: <code>$amount</code> so'm\n⏰ Kutish vaqti: <b>5</b> daqiqa\n✅ To'lov avtomatik qabul qilinadi\n\n👉🏻 Aynan <b>$amount</b> so'm yuboring!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
+        [['text'=>"💵 $amount so'm — nusxalash",'copy_text'=>['text'=>$amount]]],
         [['text'=>'💳 Kartani nusxalash','copy_text'=>['text'=>$card_raw]]],
         [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"chk=$amount=$order"]],
         [['text'=>"🌐 Web to'lov sahifasi",'url'=>$pay_url]],
@@ -262,7 +267,7 @@ if(mb_stripos($data,"chk=")!==false){
             'text'=>"✅ <b>To'lov tasdiqlandi!</b>\n\n💵 <b>".number_format($amount_c,0,'.',' ')."</b> so'm hisobingizga qo'shildi!",
             'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
     }else{
-        $pay_url="https://$sub_domen/pay?order=$order_c&shop_id=main";
+        $pay_url="https://$sub_domen/pay?order=$order_c&shop_id=127000";
         bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
             'text'=>"⏳ <b>To'lov hali kelmagan!</b>\n\n5 daqiqa ichida to'lang va qayta tekshiring.",
             'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
@@ -304,6 +309,8 @@ if(mb_stripos($data,"cancel_order=")!==false){
     bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"✅ Bekor qilindi"]);
     $order_c=explode("=",$data)[1];
     $esc=mysqli_real_escape_string($connect,$order_c);
+    // checkout jadvalini ham cancel qilish (web to'lov sahifasi ham yangilanadi)
+    mysqli_query($connect,"UPDATE checkout SET status='canceled' WHERE `order`='$esc'");
     mysqli_query($connect,"UPDATE payments SET status='cancel' WHERE used_order='$esc' AND user_id='$cid'");
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
         'text'=>"❌ <b>To'lov bekor qilindi!</b>",'parse_mode'=>'html',
