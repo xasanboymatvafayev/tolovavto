@@ -213,18 +213,42 @@ if ($ins) {
             mysqli_query($connect,
                 "UPDATE shops SET shop_balance=shop_balance+$amount WHERE shop_id='$shop_esc'"
             );
-            // Do'kon webhook (async, kutmaydi)
+            // Do'kon ma'lumotlari (webhook_url + user_id — egasi Telegram ID)
             $shops_row = mysqli_fetch_assoc(mysqli_query($connect,
-                "SELECT webhook_url FROM shops WHERE shop_id='$shop_esc'"
+                "SELECT webhook_url, user_id, shop_name FROM shops WHERE shop_id='$shop_esc'"
             ));
-            if ($shops_row && !empty($shops_row['webhook_url'])) {
-                sendWebhookAsync($shops_row['webhook_url'], [
-                    'status'   => 'paid',
-                    'order'    => $ch_order,
-                    'amount'   => $amount,
-                    'merchant' => $merchant,
-                    'date'     => $op_date,
-                ]);
+
+            if ($shops_row) {
+                $shop_owner_id  = $shops_row['user_id']  ?? null;
+                $shop_wh_url    = $shops_row['webhook_url'] ?? null;
+                $shop_name_raw  = $shops_row['shop_name'] ?? '';
+                $shop_name_show = $shop_name_raw ? base64_decode($shop_name_raw) : $ch_shop;
+                $amt_fmt_s      = number_format($amount, 0, '.', ' ');
+                $bot_local      = getenv('TELEGRAM_BOT_TOKEN');
+
+                // 1. Do'kon webhook URL ga (agar kiritilgan bo'lsa) — async
+                if (!empty($shop_wh_url)) {
+                    sendWebhookAsync($shop_wh_url, [
+                        'status'   => 'paid',
+                        'order'    => $ch_order,
+                        'amount'   => $amount,
+                        'merchant' => $merchant,
+                        'date'     => $op_date,
+                    ]);
+                }
+
+                // 2. Do'kon egasiga Telegram xabar — to'g'ridan-to'g'ri, bot orqali emas
+                // (faqat agar u bot foydalanuvchisi emas, ya'ni ch_user bilan farq qilsa)
+                if (!empty($shop_owner_id) && $shop_owner_id !== $ch_user && $bot_local) {
+                    $owner_msg  = "💰 <b>Yangi to'lov!</b>\n";
+                    $owner_msg .= "🏪 Kassa: <b>" . htmlspecialchars($shop_name_show) . "</b>\n";
+                    $owner_msg .= "━━━━━━━━━━━━━━\n";
+                    $owner_msg .= "➕ Summa: <b>$amt_fmt_s UZS</b>\n";
+                    $owner_msg .= "🔖 Order: <code>$ch_order</code>\n";
+                    $owner_msg .= "🏪 Kimdan: <b>$merchant</b>\n";
+                    $owner_msg .= "🕒 Vaqt: $op_date";
+                    sendTelegramAsync($owner_msg, $bot_local, $shop_owner_id);
+                }
             }
         }
     }
