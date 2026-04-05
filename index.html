@@ -1,0 +1,440 @@
+<!DOCTYPE html><html lang="uz"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TolovchiUZ — To‘lovlarni avtomatlashtirish</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+    * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background: #0b0f1a;
+    color: #fff;
+    overflow-x: hidden;
+}
+
+.container {
+    max-width: 1200px;
+    margin: auto;
+    padding: 0 24px;
+}
+
+/* HEADER */
+.header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(11,15,26,.6);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(255,255,255,.05);
+}
+
+.header-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 72px;
+}
+
+.logo {
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.logo span {
+    color: #22ff34;
+}
+
+.nav a {
+    margin-left: 24px;
+    color: #cfd6ff;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.nav-btn {
+    padding: 10px 18px;
+    border-radius: 10px;
+    background: linear-gradient(135deg,#2ecc71,#1e8f4d);
+    color: #fff !important;
+}
+
+/* HERO */
+.hero {
+    position: relative;
+    padding: 100px 0;
+}
+
+.hero-inner {
+    display: grid;
+    grid-template-columns: 1.1fr .9fr;
+    gap: 60px;
+    align-items: center;
+}
+
+.hero h1 {
+    font-size: 48px;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+.hero h1 span {
+    background: linear-gradient(135deg,#2ecc71,#1e8f4d);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+
+.hero p {
+    margin-top: 24px;
+    font-size: 18px;
+    color: #b8c0ff;
+    line-height: 1.7;
+}
+
+.hero-actions {
+    margin-top: 36px;
+}
+
+.btn {
+    display: inline-block;
+    padding: 14px 26px;
+    border-radius: 14px;
+    font-weight: 600;
+    text-decoration: none;
+    margin-right: 12px;
+}
+
+.btn.primary {
+    background: linear-gradient(135deg,#2ecc71,#1e8f4d);
+    color: #fff;
+}
+
+.btn.outline {
+    border: 1px solid rgba(255,255,255,.2);
+    color: #fff;
+}
+
+/* CARD */
+.card {
+    background: rgba(255,255,255,.06);
+    backdrop-filter: blur(20px);
+    border-radius: 20px;
+    padding: 28px;
+    border: 1px solid rgba(255,255,255,.08);
+}
+
+.card-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    color: #dbe1ff;
+}
+
+.success {
+    color: #3dff9f;
+}
+
+/* FEATURES */
+.features {
+    padding: 80px 0;
+}
+
+.features h2 {
+    text-align: center;
+    font-size: 36px;
+    margin-bottom: 48px;
+}
+
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(3,1fr);
+    gap: 30px;
+}
+
+.feature {
+    background: rgba(255,255,255,.05);
+    padding: 30px;
+    border-radius: 18px;
+    text-align: center;
+}
+
+.feature h3 {
+    margin: 14px 0;
+}
+
+/* FOOTER */
+.footer {
+    border-top: 1px solid rgba(255,255,255,.05);
+    padding: 30px 0;
+    color: #8f96c8;
+}
+
+.footer-inner {
+    display: flex;
+    justify-content: space-between;
+}
+
+/* BLUR */
+.bg-blur {
+    position: absolute;
+    width: 400px;
+    height: 400px;
+    filter: blur(140px);
+    opacity: .5;
+}
+
+.blur-1 {
+    background: #2ecc71;
+    top: -100px;
+    left: -100px;
+}
+
+.blur-2 {
+    background: #1e8f4d;
+    bottom: -100px;
+    right: -100px;
+}
+
+/* =========================
+   MOBILE RESPONSIVE
+========================= */
+@media (max-width: 768px) {
+
+    .header-inner {
+        height: auto;
+        padding: 14px 0;
+    }
+
+    .nav {
+        display: none;
+    }
+
+    .hero {
+        padding: 60px 0 40px;
+    }
+
+    .hero-inner {
+        grid-template-columns: 1fr;
+        gap: 36px;
+    }
+
+    .hero h1 {
+        font-size: 34px;
+        line-height: 1.25;
+    }
+
+    .hero p {
+        font-size: 16px;
+    }
+
+    .hero-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+    }
+
+    .btn {
+        width: 100%;
+        text-align: center;
+        margin-right: 0;
+    }
+
+    .card {
+        padding: 22px;
+    }
+
+    .features {
+        padding: 60px 0;
+    }
+
+    .features-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+
+    .footer-inner {
+        flex-direction: column;
+        gap: 10px;
+        text-align: center;
+    }
+}
+
+/* DOCS */
+.docs-wrapper{
+    display:grid;
+    grid-template-columns:260px 1fr;
+    max-width:1400px;
+    margin:auto;
+}
+
+.docs-sidebar{
+    background:#0c1511;
+    padding:30px;
+    position:sticky;
+    top:80px;
+    height:calc(100vh - 80px);
+}
+
+.docs-sidebar h3{
+    margin-bottom:20px;
+    color:#b9f3cf;
+}
+
+.docs-sidebar a{
+    display:block;
+    color:#cfeee0;
+    text-decoration:none;
+    padding:10px 0;
+    font-weight:500;
+}
+
+.docs-content{
+    padding:50px;
+}
+
+.endpoint{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    margin:15px 0;
+}
+
+.method{
+    background:linear-gradient(135deg,#2ecc71,#1e8f4d);
+    color:#fff;
+    padding:6px 14px;
+    border-radius:10px;
+    font-weight:700;
+}
+
+/* MOBILE */
+@media (max-width: 900px){
+    .docs-wrapper{
+        grid-template-columns:1fr;
+    }
+    .docs-sidebar{
+        display:none;
+    }
+    .docs-content{
+        padding:30px 20px;
+    }
+}
+
+</style>
+</head>
+<body>
+
+<header class="header">
+    <div class="container header-inner">
+          <div class="logo">
+              Tolovchi<span>UZ</span>
+        </div>
+
+        <nav class="nav">
+            <a href="docs.html">API</a>
+            <a href="terms.html">Oferta</a>
+            <a href="https://t.me/Tolovchi_uz_bot" class="nav-btn">
+                Kirish
+            </a>
+        </nav>
+    </div>
+</header>
+
+<section class="hero">
+    <div class="container hero-inner">
+
+        <div class="hero-left">
+            <h1>
+                To‘lovlarni oson <span>avtomatlashtirish</span><br>
+                tizimi!
+            </h1>
+
+            <p>
+                <b>TolovchiUZ</b> — Telegram orqali karta tushumlarini aniqlash,
+                real vaqtda tekshirish va API orqali biznesingizga ulash uchun
+                ishonchli platforma.
+            </p>
+
+            <div class="hero-actions">
+                <a href="https://t.me/Tolovchi_uz_bot" class="btn primary">
+                    🤖 Telegram bot
+                </a>
+                <a href="api.html" class="btn outline">
+                    📘 API hujjatlari
+                </a>
+                <a href="terms.html" class="btn outline">
+                    📑 Foydalanish shartlari
+                </a>
+            </div>
+        </div>
+
+        <div class="hero-right">
+            <div class="card">
+                <div class="card-row">
+                    <span>To‘lov holati</span>
+                    <b class="success">Tasdiqlandi</b>
+                </div>
+                <div class="card-row">
+                    <span>Summa</span>
+                    <b>250 000 UZS</b>
+                </div>
+                <div class="card-row">
+                    <span>Manba</span>
+                    <b>Telegram</b>
+                </div>
+                <div class="card-row">
+                    <span>Vaqt</span>
+                    <b>23:23 · 01.01.2026</b>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="bg-blur blur-1"></div>
+    <div class="bg-blur blur-2"></div>
+</section>
+
+<section class="features">
+    <div class="container">
+        <h2>Nima uchun TolovchiUZ?</h2>
+
+        <div class="features-grid">
+            <div class="feature">
+                ⚡
+                <h3>Real vaqt</h3>
+                <p>Telegram xabarlaridan to‘lovlar bir zumda aniqlanadi</p>
+            </div>
+            <div class="feature">
+                🔐
+                <h3>Xavfsiz</h3>
+                <p>Ma’lumotlar shifrlangan va himoyalangan</p>
+            </div>
+            <div class="feature">
+                🔌
+                <h3>API</h3>
+                <p>Har qanday sayt va bot bilan oson integratsiya</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<footer class="footer">
+    <div class="container footer-inner">
+            <span>TolovchiUZ</span>
+        <span>Barcha huquqlar himoyalangan</span>
+    </div>
+</footer>
+
+
+
+</body></html>
