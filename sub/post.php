@@ -57,7 +57,7 @@ if ($method === 'create') {
         echo json_encode(['status'=>'error','message'=>'Do\'kon faol emas!']);
         exit;
     }
-    if (($rew['month_status'] ?? '') !== 'Toʻlandi') {
+    if (($rew['month_status'] ?? '') !== 'To\'landi') {
         echo json_encode(['status'=>'error','message'=>'Oylik to\'lov qilinmagan!']);
         exit;
     }
@@ -66,12 +66,24 @@ if ($method === 'create') {
         exit;
     }
 
-    // Xuddi shu miqdorda pending bor?
+    // === TO'G'RILANGAN: Vaqt o'tgan pending orderlarni avval tozalash ===
+    $expire_time = date('Y-m-d H:i:s', strtotime('-5 minutes'));
+    mysqli_query($connect,
+        "UPDATE checkout SET status='canceled' 
+         WHERE shop_id='$shop_id_esc' AND status='pending' AND date <= '$expire_time'"
+    );
+
+    // === TO'G'RILANGAN: Faqat aktiv (vaqt o'tmagan) pending orderni tekshirish ===
     $exist = mysqli_fetch_assoc(mysqli_query($connect,
-        "SELECT * FROM checkout WHERE amount='$amount' AND shop_id='$shop_id_esc' AND status='pending'"
+        "SELECT * FROM checkout 
+         WHERE amount='$amount' AND shop_id='$shop_id_esc' AND status='pending'
+         AND date > '$expire_time'"
     ));
     if ($exist) {
-        echo json_encode(['status'=>'error','message'=>'There is a pending payment for this amount.']);
+        echo json_encode([
+            'status'  => 'error',
+            'message' => $amount . " so'm miqdorida faol to'lov mavjud. Boshqa miqdor kiriting yoki 5 daqiqa kuting."
+        ]);
         exit;
     }
 
@@ -84,7 +96,10 @@ if ($method === 'create') {
     );
 
     if ($insert) {
-        $base_domain = "https://tolovavto-production.up.railway.app";
+        // Base domain ni dynamic aniqlash
+        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $base_domain = $protocol . '://' . ($_SERVER['HTTP_HOST'] ?? 'tolovavto-production.up.railway.app');
+
         $response = [
             'status' => 'success',
             'order'  => $order,
@@ -95,7 +110,6 @@ if ($method === 'create') {
                 'status'   => 'pending',
             ]
         ];
-        // payurl=true bo'lsa to'lov sahifasi URL qo'shiladi
         if ($payurl === 'true' || $payurl === true || $payurl === '1') {
             $response['pay_url'] = "$base_domain/pay.php?order=$order&shop_id=$shop_id";
         }
@@ -186,14 +200,14 @@ if ($shop_id && $shop_key) {
     }
 
     $status       = $rew['status'];
-    $month_status = $rew['month_status'] ?? "Toʻlanmagan!";
+    $month_status = $rew['month_status'] ?? "To'lanmagan!";
     $phone        = $rew['phone'] ?? null;
 
     if ($status !== 'confirm') {
         echo json_encode(['status'=>'error','message'=>'Do\'kon faol emas!']);
         exit;
     }
-    if ($month_status !== 'Toʻlandi') {
+    if ($month_status !== 'To\'landi') {
         echo json_encode(['status'=>'error','message'=>'Oylik to\'lov qilinmagan!']);
         exit;
     }
