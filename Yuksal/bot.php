@@ -506,78 +506,95 @@ if(mb_stripos($data,"user_history=")!==false){
 }
 
 // === TO'LOVLAR TARIXI (checkout + payments birlashtirgan) ===
+// === TO'LOVLAR TARIXI (faqat shu kassaga tegishli) ===
 if(mb_stripos($data,"kassa_history=")!==false){
-    $parts=explode("=",$data); $shop_id_h=$parts[1]; $set_id=$parts[2]; $page=(int)($parts[3]??1);
-    $per_page=10; $offset=($page-1)*$per_page;
-    $shop_id_h_esc=mysqli_real_escape_string($connect,$shop_id_h);
-
-    // Barcha payments (kirim + chiqim) — shop kartasiga tegishli
-    // payments jadvalidan to'g'ridan-to'g'ri olamiz (card_type bo'yicha)
-    $total_r=mysqli_fetch_assoc(mysqli_query($connect,
-        "SELECT COUNT(*) as c FROM payments"
+    $parts=explode("=",$data); 
+    $shop_id_h = $parts[1]; 
+    $set_id = $parts[2]; 
+    $page = (int)($parts[3]??1);
+    $per_page = 10; 
+    $offset = ($page-1)*$per_page;
+    $shop_id_h_esc = mysqli_real_escape_string($connect, $shop_id_h);
+    
+    // Jami yozuvlar soni - faqat shu kassaga tegishli
+    $total_r = mysqli_fetch_assoc(mysqli_query($connect,
+        "SELECT COUNT(*) as c FROM payments WHERE shop_id='$shop_id_h_esc'"
     ));
-    $total=(int)($total_r['c']??0);
-    $total_pages=max(1,ceil($total/$per_page));
-
-    // Kirim + chiqim hammasi, eng yangi birinchi
-    $res=mysqli_query($connect,
+    $total = (int)($total_r['c']??0);
+    $total_pages = max(1, ceil($total/$per_page));
+    
+    // Kirim + chiqim - faqat shu kassa uchun
+    $res = mysqli_query($connect,
         "SELECT p.amount, p.date, p.card_type, p.merchant, p.status, p.used_order
          FROM payments p
+         WHERE p.shop_id='$shop_id_h_esc'
          ORDER BY p.created_at DESC, p.id DESC
          LIMIT $per_page OFFSET $offset"
     );
-
+    
     if($res && mysqli_num_rows($res)>0){
-        $list=""; $i=$offset+1;
-        while($row=mysqli_fetch_assoc($res)){
-            $amt=number_format((int)$row['amount'],0,'.',' ');
-            $dt=substr($row['date']??'',0,16);
-            $merchant=$row['merchant']??'';
-            $used=$row['used_order']??'';
-
-            if($row['card_type']==='credit'){
-                $icon="🟢"; $sign="+";
-                $type_label="Kirim";
+        $list = ""; 
+        $i = $offset + 1;
+        while($row = mysqli_fetch_assoc($res)){
+            $amt = number_format((int)$row['amount'], 0, '.', ' ');
+            $dt = substr($row['date']??'', 0, 16);
+            $merchant = $row['merchant'] ?? '';
+            $used = $row['used_order'] ?? '';
+            
+            if($row['card_type'] === 'credit'){
+                $icon = "🟢"; 
+                $sign = "+";
+                $type_label = "Kirim (O'tkazma olindi)";
             } else {
-                $icon="🔴"; $sign="-";
-                $type_label="Chiqim";
+                $icon = "🔴"; 
+                $sign = "-";
+                $type_label = "Chiqim (To'lov)";
             }
-
-            $line="<b>$i</b>. $icon <b>$sign$amt</b> so'm — $type_label";
-            if(!empty($merchant)) $line.="\n🏪 ".$merchant;
-            if(!empty($dt)) $line.="\n📅 ".$dt;
-            if(!empty($used)) $line.="\n🔗 <code>$used</code>";
-            $list.=$line."\n\n";
+            
+            $line = "<b>$i</b>. $icon <b>$sign$amt</b> so'm — $type_label";
+            if(!empty($merchant)) $line .= "\n🏪 " . htmlspecialchars($merchant);
+            if(!empty($dt)) $line .= "\n📅 " . $dt;
+            if(!empty($used)) $line .= "\n🔗 <code>" . htmlspecialchars($used) . "</code>";
+            $list .= $line . "\n\n";
             $i++;
         }
-
-        // Jami statistika
-        $stats=mysqli_fetch_assoc(mysqli_query($connect,
+        
+        // Jami statistika - faqat shu kassa uchun
+        $stats = mysqli_fetch_assoc(mysqli_query($connect,
             "SELECT
                COALESCE(SUM(CASE WHEN card_type='credit' THEN amount ELSE 0 END),0) as jami_kirim,
-               COALESCE(SUM(CASE WHEN card_type='debit'  THEN amount ELSE 0 END),0) as jami_chiqim
-             FROM payments"
+               COALESCE(SUM(CASE WHEN card_type='debit' THEN amount ELSE 0 END),0) as jami_chiqim
+             FROM payments
+             WHERE shop_id='$shop_id_h_esc'"
         ));
-        $kirim_fmt=number_format((int)$stats['jami_kirim'],0,'.',' ');
-        $chiqim_fmt=number_format((int)$stats['jami_chiqim'],0,'.',' ');
-
-        $header="💰 <b>To'lovlar tarixi</b> (jami: $total)\n";
-        $header.="🟢 Kirim: <b>$kirim_fmt</b> so'm | 🔴 Chiqim: <b>$chiqim_fmt</b> so'm\n\n";
-
-        $nav=[];
-        if($page>1) $nav[]=['text'=>"◀️ Oldingi",'callback_data'=>"kassa_history=$shop_id_h=$set_id=".($page-1)];
-        $nav[]=['text'=>"$page / $total_pages",'callback_data'=>"noop"];
-        if($page<$total_pages) $nav[]=['text'=>"Keyingi ▶️",'callback_data'=>"kassa_history=$shop_id_h=$set_id=".($page+1)];
-
-        $kb=['inline_keyboard'=>[]];
-        if(count($nav)>1 || $total_pages>1) $kb['inline_keyboard'][]=$nav;
-        $kb['inline_keyboard'][]=[['text'=>"⏪ Ortga",'callback_data'=>"kassa_set=$set_id"]];
-
-        bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
-            'text'=>$header.$list,
-            'parse_mode'=>'html','reply_markup'=>json_encode($kb)]);
-    }else{
-        bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"❌ To'lovlar topilmadi!",'show_alert'=>true]);
+        $kirim_fmt = number_format((int)$stats['jami_kirim'], 0, '.', ' ');
+        $chiqim_fmt = number_format((int)$stats['jami_chiqim'], 0, '.', ' ');
+        
+        $header = "💰 <b>To'lovlar tarixi</b> (jami: $total ta)\n";
+        $header .= "🟢 Kirim: <b>$kirim_fmt</b> so'm | 🔴 Chiqim: <b>$chiqim_fmt</b> so'm\n\n";
+        
+        $nav = [];
+        if($page > 1) $nav[] = ['text'=>"◀️ Oldingi", 'callback_data'=>"kassa_history=$shop_id_h=$set_id=".($page-1)];
+        $nav[] = ['text'=>"$page / $total_pages", 'callback_data'=>"noop"];
+        if($page < $total_pages) $nav[] = ['text'=>"Keyingi ▶️", 'callback_data'=>"kassa_history=$shop_id_h=$set_id=".($page+1)];
+        
+        $kb = ['inline_keyboard'=>[]];
+        if(count($nav) > 1 || $total_pages > 1) $kb['inline_keyboard'][] = $nav;
+        $kb['inline_keyboard'][] = [['text'=>"⏪ Ortga", 'callback_data'=>"kassa_set=$set_id"]];
+        
+        bot('editMessageText', [
+            'chat_id' => $cid,
+            'message_id' => $mid,
+            'text' => $header . $list,
+            'parse_mode' => 'html',
+            'reply_markup' => json_encode($kb)
+        ]);
+    } else {
+        bot('answerCallbackQuery', [
+            'callback_query_id' => $qid,
+            'text' => "❌ To'lovlar topilmadi!",
+            'show_alert' => true
+        ]);
     }
     exit;
 }
