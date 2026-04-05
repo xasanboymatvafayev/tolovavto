@@ -106,7 +106,7 @@ $m = in_array($cid,$admin) ? $menu_p : $menu;
 
 if($data=="result"){
     bot('DeleteMessage',['chat_id'=>$cid,'message_id'=>$mid]);
-    if(joinchat($cid)==true) bot('SendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Tasdiqlandi!",'parse_mode'=>'html','reply_markup'=>$m]);
+    if(joinchat($cid)==true) bot('SendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Tasdiqlandi!</b>",'parse_mode'=>'html','reply_markup'=>$m]);
     exit;
 }
 
