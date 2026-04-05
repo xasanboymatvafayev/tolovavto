@@ -52,22 +52,23 @@ function joinchat($id){
     } else return true;
 }
 
-// Moliyaviy statistika hisoblash
-function getStats($connect, $shop_id){
-    $today     = date('Y-m-d');
-    $yesterday = date('Y-m-d', strtotime('-1 day'));
-    $month_s   = date('Y-m-01');
-    $prev_s    = date('Y-m-01', strtotime('-1 month'));
-    $prev_e    = date('Y-m-t', strtotime('-1 month'));
+// Moliyaviy statistika — faqat shu kassaga tegishli to'lovlar
+function getStats($connect, $shop_id, $user_id){
+    $today    = date('Y-m-d');
+    $yesterday= date('Y-m-d', strtotime('-1 day'));
+    $month_s  = date('Y-m-01');
+    $prev_s   = date('Y-m-01', strtotime('-1 month'));
+    $prev_e   = date('Y-m-t',  strtotime('-1 month'));
+    $uid = (int)$user_id;
 
-    $q = function($sql) use ($connect){ $r=mysqli_fetch_assoc(mysqli_query($connect,$sql)); return $r['s']??0; };
+    $q = function($sql) use ($connect){ $r=mysqli_fetch_assoc(mysqli_query($connect,$sql)); return (int)($r['s']??0); };
 
     return [
-        'bugun'     => $q("SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='used' AND DATE(created_at)='$today'"),
-        'kecha'     => $q("SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='used' AND DATE(created_at)='$yesterday'"),
-        'bu_oy'     => $q("SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='used' AND created_at>='$month_s'"),
-        'otgan_oy'  => $q("SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='used' AND created_at>='$prev_s' AND created_at<='$prev_e 23:59:59'"),
-        'jami'      => $q("SELECT COALESCE(SUM(shop_balance),0) as s FROM shops WHERE shop_id='$shop_id'"),
+        'bugun'    => $q("SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='used' AND user_id='$uid' AND DATE(created_at)='$today'"),
+        'kecha'    => $q("SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='used' AND user_id='$uid' AND DATE(created_at)='$yesterday'"),
+        'bu_oy'    => $q("SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='used' AND user_id='$uid' AND created_at>='$month_s'"),
+        'otgan_oy' => $q("SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='used' AND user_id='$uid' AND created_at BETWEEN '$prev_s 00:00:00' AND '$prev_e 23:59:59'"),
+        'jami'     => $q("SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='used' AND user_id='$uid'"),
     ];
 }
 
@@ -103,14 +104,12 @@ $panel  = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"📊 Stat
 $back   = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"⏪ Ortga"]]]]);
 $m = in_array($cid,$admin) ? $menu_p : $menu;
 
-// Obuna tekshirish
 if($data=="result"){
     bot('DeleteMessage',['chat_id'=>$cid,'message_id'=>$mid]);
     if(joinchat($cid)==true) bot('SendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Tasdiqlandi!</b>",'parse_mode'=>'html','reply_markup'=>$m]);
     exit;
 }
 
-// /start
 if($text=="/start"||$text=="⏪ Ortga"){
     if(joinchat($cid)==true){
         mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
@@ -119,13 +118,11 @@ if($text=="/start"||$text=="⏪ Ortga"){
     }
 }
 
-// Qo'llanma
 if($text=="📕 Qoʻllanma"){
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>📘 Qoʻllanma:</b>\n\nKassa qoʻshib admindan tasdiqlatasiz. Tasdiqlangach oylik toʻlovni toʻlaysiz va hisobni ulaysiz.\n\n📣 Yordam: @Matvafaevv",'parse_mode'=>'html','reply_markup'=>$m]);
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>📘 Qoʻllanma:</b>\n\nKassa qoʻshib admindan tasdiqlatasiz. Tasdiqlangach oylik toʻlovni toʻlaysiz va hisobni ulaysiz.\n\n📣 Yordam: @xmtvv1",'parse_mode'=>'html','reply_markup'=>$m]);
     exit;
 }
 
-// Hisobim
 if($text=="💵 Hisobim"){
     bot('sendMessage',['chat_id'=>$cid,'text'=>"👔 <b>Sizning hisobingiz!</b>\n\n• ID: <code>$uid</code>\n• Balans: <b>$balance</b> so'm\n• Kiritgan: <b>$payment</b> so'm",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔄 Yangilash",'callback_data'=>"Hisobim"]]]])]);
     exit;
@@ -136,7 +133,6 @@ if($data=="Hisobim"){
     exit;
 }
 
-// To'ldirish
 if($text=="💳 To'ldirish"){
     bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>👇 To'lov tizimini tanlang!</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🏦 Bank karta (Avtomatik)",'callback_data'=>"uzcard"]]]])]);
     exit;
@@ -155,10 +151,12 @@ if($step=="uzcard_auto"){
 
     $active=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM payments WHERE user_id='$cid' AND status='pending'"));
     if($active){
+        $pay_url="https://$sub_domen/pay?order=".$active['used_order']."&shop_id=main";
         bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Faol amaliyot bor!</b>\n\n💵 To'lash kerak: <b>".$active['amount']."</b> so'm\n⚠️ Aynan shu miqdorni to'lang!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
             [['text'=>'💵 Miqdorni nusxalash','copy_text'=>['text'=>$active['amount']]]],
             [['text'=>'💳 Kartani nusxalash','copy_text'=>['text'=>'5614 6835 8227 9246']]],
-            [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"check_pay=".$active['amount']."=".$active['used_order']]],
+            [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"chk=".$active['amount']."=".$active['used_order']]],
+            [['text'=>"🌐 Web to'lov",'url'=>$pay_url]],
             [['text'=>"❌ Bekor qilish",'callback_data'=>"cancelpay=".$active['id']]],
         ]])]);
         mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
@@ -173,44 +171,73 @@ if($step=="uzcard_auto"){
 
     $order=generate();
     mysqli_query($connect,"INSERT INTO payments (message_id,amount,status,used_order,user_id,created_at) VALUES('user_{$cid}_{$order}','$amount','pending','$order','$cid',NOW())");
-    $pay_url = "https://$sub_domen/pay.php?order=$order&shop_id=main";
+    $pay_url="https://$sub_domen/pay?order=$order&shop_id=main";
 
     bot('sendMessage',['chat_id'=>$cid,'text'=>"➡️ <b>To'lov kartasi:</b> <code>5614 6835 8227 9246</code>\n\n💵 Miqdori: <code>$amount</code> so'm\n⏰ Kutish vaqti: <b>5</b> daqiqa\n✅ To'lov avtomatik qabul qilinadi\n\n👉🏻 Aynan <b>$amount</b> so'm yuboring!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
         [['text'=>'💵 Miqdorni nusxalash','copy_text'=>['text'=>$amount]]],
         [['text'=>'💳 Kartani nusxalash','copy_text'=>['text'=>'5614 6835 8227 9246']]],
-        [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"check_pay=$amount=$order"]],
+        [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"chk=$amount=$order"]],
         [['text'=>"🌐 Web to'lov sahifasi",'url'=>$pay_url]],
     ]])]);
     mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
     exit;
 }
 
-// To'lovni tekshirish
-if(mb_stripos($data,"check_pay=")!==false){
+// To'lovni tekshirish — tezlashtirilgan (to'g'ridan DB dan)
+if(mb_stripos($data,"chk=")!==false){
     bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"🔄 Tekshirilmoqda..."]);
-    $parts=explode("=",$data); $amount_c=$parts[1]; $order_c=$parts[2];
+    $parts=explode("=",$data); $amount_c=(int)$parts[1]; $order_c=$parts[2];
 
-    $ch=curl_init("https://$sub_domen/status.php?amount=$amount_c&order=$order_c");
-    curl_setopt($ch,CURLOPT_RETURNTRANSFER,true); curl_setopt($ch,CURLOPT_TIMEOUT,10);
-    $res=curl_exec($ch); curl_close($ch);
-    $json=json_decode($res,true);
+    // status.php ga murojaat o'rniga to'g'ridan DB dan tekshirish (tezroq)
+    $order_esc=mysqli_real_escape_string($connect,$order_c);
+    $pay_row=mysqli_fetch_assoc(mysqli_query($connect,
+        "SELECT * FROM payments WHERE used_order='$order_esc' AND status='used' LIMIT 1"
+    ));
 
-    if(($json['result']['status']??'')==="paid"){
+    // Agar topilmasa — kelgan emaildan pending bo'lgan tekshirish
+    if(!$pay_row){
+        $time_limit=date('Y-m-d H:i:s',strtotime('-5 minutes'));
+        $pay_row=mysqli_fetch_assoc(mysqli_query($connect,
+            "SELECT * FROM payments WHERE amount='$amount_c' AND status='pending' AND created_at>='$time_limit' LIMIT 1"
+        ));
+        if($pay_row){
+            // Pending bor, email kelganmi tekshiramiz
+            $email_pay=mysqli_fetch_assoc(mysqli_query($connect,
+                "SELECT * FROM payments WHERE amount='$amount_c' AND status='pending' AND message_id NOT LIKE 'user_%' AND created_at>='$time_limit' LIMIT 1"
+            ));
+            if($email_pay){
+                // Email dan kelgan to'lov bor — tasdiqlash
+                mysqli_query($connect,"UPDATE payments SET status='used', used_order='$order_esc' WHERE id='".$email_pay['id']."'");
+                $pay_row = $email_pay;
+                $pay_row['status'] = 'used';
+            } else {
+                $pay_row = null;
+            }
+        }
+    }
+
+    if($pay_row && $pay_row['status']==='used'){
         mysqli_query($connect,"UPDATE users SET balance=balance+$amount_c, deposit=deposit+$amount_c WHERE user_id='$cid'");
-        bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"✅ <b>To'lov tasdiqlandi!</b>\n\n💵 <b>".number_format($amount_c,0,'.',' ')."</b> so'm hisobingizga qo'shildi!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
+        // Bot to'lovni ham used qilish
+        mysqli_query($connect,"UPDATE payments SET status='used', used_order='$order_esc' WHERE used_order='$order_esc' OR (amount='$amount_c' AND user_id='$cid' AND status='pending')");
+        bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
+            'text'=>"✅ <b>To'lov tasdiqlandi!</b>\n\n💵 <b>".number_format($amount_c,0,'.',' ')."</b> so'm hisobingizga qo'shildi!",
+            'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
     }else{
-        $pay_url="https://$sub_domen/pay.php?order=$order_c&shop_id=main";
-        bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"⏳ <b>To'lov hali kelmagan!</b>\n\n5 daqiqa ichida to'lang va qayta tekshiring.",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
-            [['text'=>"🔄 Qayta tekshirish",'callback_data'=>"check_pay=$amount_c=$order_c"]],
-            [['text'=>"🌐 Web to'lov",'url'=>$pay_url]],
-            [['text'=>"❌ Bekor qilish",'callback_data'=>"cancel_by_order=$order_c"]],
-        ]])]);
+        $pay_url="https://$sub_domen/pay?order=$order_c&shop_id=main";
+        bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
+            'text'=>"⏳ <b>To'lov hali kelmagan!</b>\n\n5 daqiqa ichida to'lang va qayta tekshiring.",
+            'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
+                [['text'=>"🔄 Qayta tekshirish",'callback_data'=>"chk=$amount_c=$order_c"]],
+                [['text'=>"🌐 Web to'lov",'url'=>$pay_url]],
+                [['text'=>"❌ Bekor qilish",'callback_data'=>"cancel_order=$order_c"]],
+            ]])]);
     }
 }
 
 if(mb_stripos($data,"cancelpay=")!==false){
     $id=explode("=",$data)[1];
-    bot('SendMessage',['chat_id'=>$cid,'text'=>"🤔 <b>Bekor qilmoqchimisiz?</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"✅ Ha",'callback_data'=>"cancelpayy=$id"],['text'=>"❌ Yo'q",'callback_data'=>"delete_data"]]]])]);
+    bot('SendMessage',['chat_id'=>$cid,'text'=>"🤔 <b>Bekor qilmoqchimisiz?</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"✅ Ha",'callback_data'=>"cancelpayy=$id"],['text'=>"❌ Yo'q",'callback_data'=>"del_msg"]]]])]);
 }
 if(mb_stripos($data,"cancelpayy=")!==false){
     $id=explode("=",$data)[1];
@@ -218,23 +245,21 @@ if(mb_stripos($data,"cancelpayy=")!==false){
     bot('DeleteMessage',['chat_id'=>$cid,'message_id'=>$mid]);
     bot('SendMessage',['chat_id'=>$cid,'text'=>"❌ <b>Bekor qilindi!</b>",'parse_mode'=>'html','reply_markup'=>$m]);
 }
-if($data=="delete_data") bot('DeleteMessage',['chat_id'=>$cid,'message_id'=>$mid]);
+if($data=="del_msg") bot('DeleteMessage',['chat_id'=>$cid,'message_id'=>$mid]);
 
-if(mb_stripos($data,"cancel_by_order=")!==false){
+if(mb_stripos($data,"cancel_order=")!==false){
     $order_c=explode("=",$data)[1];
-    mysqli_query($connect,"UPDATE payments SET status='canceled' WHERE used_order='".mysqli_real_escape_string($connect,$order_c)."' AND user_id='$cid'");
+    $esc=mysqli_real_escape_string($connect,$order_c);
+    mysqli_query($connect,"UPDATE payments SET status='canceled' WHERE used_order='$esc' AND user_id='$cid'");
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"❌ <b>To'lov bekor qilindi!</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
 }
 
-// API Docs
 if($text=="📖 API Hujjatlar"){
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>API Hujjatlar:</b> https://https://tolovchiuz.vercel.app",'disable_web_page_preview'=>true,'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"📁 API Docs",'url'=>"https://tolovchiuz.vercel.app/api.html"]]]])]);
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>📖 API Hujjatlar:</b>\nhttps://$sub_domen/docs.html",'disable_web_page_preview'=>true,'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"📁 API Docs",'url'=>"https://$sub_domen/docs.html"]]]])]);
     exit;
 }
 
-// =====================================
 // KASSALARIM
-// =====================================
 function show_kassalar($cid,$connect,$mid=null,$edit=false){
     $result=mysqli_query($connect,"SELECT * FROM `shops` WHERE `user_id`='$cid'");
     $i=0; $key=[];
@@ -253,29 +278,24 @@ function show_kassalar($cid,$connect,$mid=null,$edit=false){
 if($text=="🏪 Kassalarim"){ show_kassalar($cid,$connect); }
 if($data=="Kassalarim"){ show_kassalar($cid,$connect,$mid,true); }
 
-// =====================================
-// KASSA KO'RISH — rasmdagidek
-// =====================================
+// KASSA KO'RISH
 if(mb_stripos($data,"kassa_set=")!==false){
     $id=explode("=",$data)[1];
     $rew=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE id='$id'"));
     $nomi=base64_decode($rew['shop_name']);
     $shop_id=$rew['shop_id']; $shop_key=$rew['shop_key'];
     $address=$rew['shop_address']; $status=$rew['status'];
-    $shop_balance=$rew['shop_balance']??0;
     $month_status=$rew['month_status']??"Toʻlanmagan!";
     $over=$rew['over_day']??"0";
     $phone=$rew['phone']??null;
     $card_num=$rew['card_number']??null;
     $card_bank=$rew['card_bank']??null;
-    $webhook_url=$rew['webhook_url']??null;
-    $email=$rew['email']??null;
-    $provider="UZCARD"; // yoki HUMO
+    $shop_user_id=$rew['user_id'];
 
-    // Karta provider aniqlash
+    $provider="—";
     if($card_num){
-        $first=substr(preg_replace('/\s+/','',$card_num),0,4);
-        $provider = (in_array($first,['9860','8600','5614','4111'])) ? "UZCARD ✅" : "HUMO ✅";
+        $first=substr(preg_replace('/\s+/','',$card_num),0,1);
+        $provider=($first=='9')?"HUMO ✅":"UZCARD ✅";
     }
 
     $kb=['inline_keyboard'=>[]]; $confirm_text="";
@@ -284,15 +304,13 @@ if(mb_stripos($data,"kassa_set=")!==false){
         $icon="🔄 Kutilmoqda...";
         $kb['inline_keyboard'][]=[['text'=>"⏪ Ortga",'callback_data'=>"Kassalarim"]];
     }elseif($status=="confirm"){
-        $card_show = $card_num ? "<code>".chunk_split(preg_replace('/\s+/','',$card_num),4,' ')."</code>" : "Kiritilmagan";
-        $wh_show   = $webhook_url ? "<code>".htmlspecialchars($webhook_url)."</code>" : "Kiritilmagan";
-        $email_show= $email ? "<code>$email</code>" : "Kiritilmagan";
-        $kassa_date= date('Y-m-d', strtotime($rew['date']??'now'));
-        $expire_date=date('Y-m-d', strtotime($rew['date']??'now', strtotime("+{$over} days")));
+        // Muddat hisoblash
+        $created=strtotime($rew['date']??'now');
+        $expire=date('Y-m-d',strtotime("+".(int)$over." days",$created));
 
-        // Moliyaviy statistika
-        $stats = getStats($connect, $shop_id);
-        $stat_text = "\n📊 <b>Moliyaviy statistika</b>\n\n".
+        // Statistika
+        $stats=getStats($connect,$shop_id,$shop_user_id);
+        $stat_text="\n📊 <b>Moliyaviy statistika</b>\n\n".
             "📅 Bugungi tushum: <b>".number_format($stats['bugun'],0,'.',' ')."</b> so'm\n".
             "📆 Kechagi tushum: <b>".number_format($stats['kecha'],0,'.',' ')."</b> so'm\n".
             "🗓 Bu oygi tushum: <b>".number_format($stats['bu_oy'],0,'.',' ')."</b> so'm\n".
@@ -303,23 +321,18 @@ if(mb_stripos($data,"kassa_set=")!==false){
 
         if($need_pay){
             $icon="📛 Toʻlanmagan!";
-            $confirm_text="\n🔎 Oylik to'lov holati: <b>$month_status</b>\n";
-            $confirm_text.=$stat_text;
+            $confirm_text="\n🔎 Oylik to'lov holati: <b>$month_status</b>\n".$stat_text;
             $kb['inline_keyboard'][]=[['text'=>"💵 Oylik to'lovni to'lash",'callback_data'=>"kassa_payment=$shop_id=$id"]];
+        }elseif(empty($phone)){
+            $icon="📛 Hisob ulanmagan!";
+            $confirm_text="\n🔎 Holat: <b>$month_status</b>\n".$stat_text;
+            $kb['inline_keyboard'][]=[['text'=>"🔗 Kassa ulash",'callback_data'=>"req_connect=$shop_id=$cid"]];
         }else{
-            if(empty($phone)){
-                $icon="📛 Hisob ulanmagan!";
-                $confirm_text="\n🔎 Oylik to'lov holati: <b>$month_status</b>\n";
-                $confirm_text.=$stat_text;
-                $kb['inline_keyboard'][]=[['text'=>"🔗 Kassa ulash",'callback_data'=>"req_connect=$shop_id=$cid"]];
-            }else{
-                $icon="✅ Faol!";
-                $confirm_text="\n🔘 Oylik to'lov holati: <b>$month_status</b>\n📆 Kassa muddati: <b>$expire_date</b>\n";
-                $confirm_text.=$stat_text;
-                $kb['inline_keyboard'][]=[['text'=>"💰 To'lovlar tarixi",'callback_data'=>"kassa_history=$shop_id=$id"]];
-                $kb['inline_keyboard'][]=[['text'=>"⏩ Muddatni uzaytirish",'callback_data'=>"kassa_payment=$shop_id=$id"]];
-                $kb['inline_keyboard'][]=[['text'=>"⚙️ Sozlamalar",'callback_data'=>"kassa_sozlama=$shop_id=$id"]];
-            }
+            $icon="✅ Faol!";
+            $confirm_text="\n🔘 Oylik to'lov holati: <b>$month_status</b>\n📆 Kassa muddati: <b>$expire</b>\n".$stat_text;
+            $kb['inline_keyboard'][]=[['text'=>"💰 To'lovlar tarixi",'callback_data'=>"kassa_history=$shop_id=$id"]];
+            $kb['inline_keyboard'][]=[['text'=>"⏩ Muddatni uzaytirish",'callback_data'=>"kassa_payment=$shop_id=$id"]];
+            $kb['inline_keyboard'][]=[['text'=>"⚙️ Sozlamalar",'callback_data'=>"kassa_sozlama=$shop_id=$id"]];
         }
         $kb['inline_keyboard'][]=[['text'=>"⏪ Ortga",'callback_data'=>"Kassalarim"]];
     }elseif($status=="canceled"){
@@ -332,39 +345,35 @@ if(mb_stripos($data,"kassa_set=")!==false){
         'parse_mode'=>'html','reply_markup'=>json_encode($kb)]);
 }
 
-// =====================================
-// SOZLAMALAR sahifasi
-// =====================================
+// SOZLAMALAR
 if(mb_stripos($data,"kassa_sozlama=")!==false){
     $parts=explode("=",$data); $shop_id_s=$parts[1]; $set_id_s=$parts[2];
     $rew=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='$shop_id_s'"));
     $card_num=$rew['card_number']??null;
     $card_bank=$rew['card_bank']??null;
     $webhook_url=$rew['webhook_url']??null;
-    $phone=$rew['phone']??null;
     $email_addr=$rew['email']??null;
 
-    // Provider aniqlash
     $provider="—";
     if($card_num){
-        $first=substr(preg_replace('/\s+/','',$card_num),0,4);
-        $provider=(in_array($first,['9860','8600','5614','4111']))?"UZCARD ✅":"HUMO ✅";
+        $first=substr(preg_replace('/\s+/','',$card_num),0,1);
+        $provider=($first=='9')?"HUMO ✅":"UZCARD ✅";
     }
 
     $card_show=$card_num?chunk_split(preg_replace('/\s+/','',$card_num),4,' '):"Kiritilmagan";
-    $wh_show=$webhook_url?$webhook_url:"Kiritilmagan";
     $email_show=$email_addr?$email_addr:"Kiritilmagan";
+    $wh_show=$webhook_url?$webhook_url:"Kiritilmagan";
 
-    $txt="⚙️ <b>Kassa sozlamalari</b>\n\n".
-        "📧 Ulangan e-mail: <code>$email_show</code>\n".
-        "🔌 Provider: $provider\n".
-        "💳 Karta: <code>$card_show</code> ".($card_bank?"<b>$card_bank</b>":"")."\n".
-        "🏦 Bank: ".($card_bank?:"—")."\n".
-        "🆔 Shop ID: <code>$shop_id_s</code>\n".
-        "🔑 Shop Key: <code>".$rew['shop_key']."</code>\n".
-        "🔗 Manzil: <b>".$rew['shop_address']."</b>";
-
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>$txt,'parse_mode'=>'html',
+    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
+        'text'=>"⚙️ <b>Kassa sozlamalari</b>\n\n".
+            "📧 Ulangan e-mail: <code>$email_show</code>\n".
+            "🔌 Provider: $provider\n".
+            "💳 Karta: <code>$card_show</code>".($card_bank?" <b>$card_bank</b>":"")."\n".
+            "🏦 Bank: ".($card_bank?:"—")."\n".
+            "🆔 Shop ID: <code>$shop_id_s</code>\n".
+            "🔑 Shop Key: <code>".$rew['shop_key']."</code>\n".
+            "🔗 Manzil: <b>".$rew['shop_address']."</b>",
+        'parse_mode'=>'html',
         'reply_markup'=>json_encode(['inline_keyboard'=>[
             [['text'=>"🔗 Webhook / Callback",'callback_data'=>"set_webhook=$shop_id_s=$set_id_s"]],
             [['text'=>"💳 Karta raqam kiritish",'callback_data'=>"set_card=$shop_id_s=$set_id_s"]],
@@ -374,19 +383,17 @@ if(mb_stripos($data,"kassa_sozlama=")!==false){
         ]])]);
 }
 
-// To'lovlar tarixi
+// TO'LOVLAR TARIXI — faqat shu kassaning to'lovlari
 if(mb_stripos($data,"kassa_history=")!==false){
     $parts=explode("=",$data); $shop_id_h=$parts[1]; $set_id=$parts[2];
+    $shop_r=mysqli_fetch_assoc(mysqli_query($connect,"SELECT user_id FROM shops WHERE shop_id='$shop_id_h'"));
+    $shop_uid=(int)($shop_r['user_id']??0);
 
-    // Bu kassaning foydalanuvchisiga tegishli to'lovlar
     $res=mysqli_query($connect,
-        "SELECT p.* FROM payments p
-         JOIN shops s ON s.user_id='$cid'
-         WHERE p.status='used'
-         ORDER BY p.created_at DESC LIMIT 20"
+        "SELECT * FROM payments WHERE status='used' AND user_id='$shop_uid' ORDER BY created_at DESC LIMIT 20"
     );
 
-    if(mysqli_num_rows($res)>0){
+    if($res && mysqli_num_rows($res)>0){
         $list=""; $i=0;
         while($row=mysqli_fetch_assoc($res)){
             $i++;
@@ -405,22 +412,20 @@ if(mb_stripos($data,"kassa_history=")!==false){
     }
 }
 
-// Muddatni uzaytirish — 20000 so'm
+// MUDDATNI UZAYTIRISH
 if(mb_stripos($data,"kassa_payment=")!==false){
     $parts=explode("=",$data); $shop_id_p=$parts[1]; $set_id_p=$parts[2];
     $rew=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid'"));
     $bal=$rew['balance'];
     $req=in_array($cid,$admin)?0:20000;
-
     if($bal>=$req){
         $new_bal=$bal-$req;
         mysqli_query($connect,"UPDATE users SET balance=$new_bal WHERE user_id='$cid'");
-        // over_day ni 30 ga oshirish
         $shop_r=mysqli_fetch_assoc(mysqli_query($connect,"SELECT over_day FROM shops WHERE id='$set_id_p'"));
         $new_over=($shop_r['over_day']??0)+30;
         mysqli_query($connect,"UPDATE shops SET over_day=$new_over, month_status='Toʻlandi' WHERE id='$set_id_p'");
         bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
-            'text'=>"✅ <b>Muddat 30 kunga uzaytirildi!</b>\n\n📆 Yangi muddat: <b>$new_over</b> kun",
+            'text'=>"✅ <b>Muddat 30 kunga uzaytirildi!</b>\n\n📆 Qolgan kun: <b>$new_over</b>",
             'parse_mode'=>'html',
             'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"⏪ Ortga",'callback_data'=>"kassa_set=$set_id_p"]]]])]);
     }else{
@@ -428,7 +433,7 @@ if(mb_stripos($data,"kassa_payment=")!==false){
     }
 }
 
-// Karta kiritish
+// KARTA KIRITISH
 if(mb_stripos($data,"set_card=")!==false){
     $parts=explode("=",$data); $shop_id_c=$parts[1]; $set_id_c=$parts[2];
     mysqli_query($connect,"UPDATE users SET step='set_card_num=$shop_id_c=$set_id_c' WHERE user_id='$cid'");
@@ -439,9 +444,7 @@ if(mb_stripos($data,"set_card=")!==false){
 if(mb_stripos($step,"set_card_num=")!==false){
     $parts=explode("=",$step); $shop_id_c=$parts[1]; $set_id_c=$parts[2];
     $card=preg_replace('/\s+/','',$text);
-    if(!preg_match('/^\d{16}$/',$card)){
-        bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ <b>16 ta raqam kiriting!</b>",'parse_mode'=>'html']); exit;
-    }
+    if(!preg_match('/^\d{16}$/',$card)){ bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ <b>16 ta raqam kiriting!</b>",'parse_mode'=>'html']); exit; }
     mysqli_query($connect,"UPDATE users SET step='set_card_bank=$shop_id_c=$set_id_c=$card' WHERE user_id='$cid'");
     bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ Karta: <code>$card</code>\n\n🏦 <b>Bank turini tanlang:</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
         [['text'=>"🔵 UzCard",'callback_data'=>"card_bank=UzCard=$shop_id_c=$set_id_c=$card"]],
@@ -461,105 +464,143 @@ if(mb_stripos($data,"card_bank=")!==false){
         'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"⏪ Ortga",'callback_data'=>"kassa_sozlama=$shop_id_c=$set_id_c"]]]])]);
 }
 
-// Webhook kiritish
+// WEBHOOK
 if(mb_stripos($data,"set_webhook=")!==false){
     $parts=explode("=",$data); $shop_id_w=$parts[1]; $set_id_w=$parts[2];
     mysqli_query($connect,"UPDATE users SET step='set_webhook=$shop_id_w=$set_id_w' WHERE user_id='$cid'");
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
-        'text'=>"🔗 <b>Webhook URL ni kiriting:</b>\n\nMasalan: https://sizning-sayt.uz/webhook\n\n<i>To'lov bo'lganda bot shu manzilga POST so'rov yuboradi.</i>",
+        'text'=>"🔗 <b>Webhook URL ni kiriting:</b>\n\nMasalan: https://sizning-sayt.uz/webhook",
         'parse_mode'=>'html']);
 }
 if(mb_stripos($step,"set_webhook=")!==false){
     $parts=explode("=",$step); $shop_id_w=$parts[1]; $set_id_w=$parts[2];
     if($text=="⏪ Ortga"){ mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'"); exit; }
-    if(!filter_var($text,FILTER_VALIDATE_URL)){
-        bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ <b>Noto'g'ri URL!</b>\n\nhttps:// bilan boshlanishi kerak.",'parse_mode'=>'html']); exit;
-    }
-    $wh_esc=mysqli_real_escape_string($connect,$text);
-    mysqli_query($connect,"UPDATE shops SET webhook_url='$wh_esc' WHERE shop_id='$shop_id_w'");
+    if(!filter_var($text,FILTER_VALIDATE_URL)){ bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ https:// bilan boshlanishi kerak.",'parse_mode'=>'html']); exit; }
+    mysqli_query($connect,"UPDATE shops SET webhook_url='".mysqli_real_escape_string($connect,$text)."' WHERE shop_id='$shop_id_w'");
     mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
     bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Webhook saqlandi!</b>\n\n<code>$text</code>",'parse_mode'=>'html',
         'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"⏪ Ortga",'callback_data'=>"kassa_sozlama=$shop_id_w=$set_id_w"]]]])]);
 }
 
-// Key yangilash
+// KEY YANGILASH
 if(mb_stripos($data,"new_key=")!==false){
     $id=explode("=",$data)[1]; $k=generate();
     mysqli_query($connect,"UPDATE shops SET shop_key='$k' WHERE shop_id='$id'");
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"✅ <b>Kalit yangilandi!</b> <code>$k</code>",'parse_mode'=>'HTML']);
 }
 
-// Kassani o'chirish
-if(mb_stripos($data,"del_kassa=")!==false){
-    $parts=explode("=",$data); $shop_id_d=$parts[1]; $set_id_d=$parts[2];
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
-        'text'=>"🗑️ <b>Kassani o'chirmoqchimisiz?</b>\n\n⚠️ Bu amalni ortga qaytarib bo'lmaydi!",
-        'parse_mode'=>'html',
-        'reply_markup'=>json_encode(['inline_keyboard'=>[
-            [['text'=>"✅ Ha, o'chir",'callback_data'=>"del_kassa_yes=$shop_id_d"]],
-            [['text'=>"❌ Yo'q",'callback_data'=>"kassa_set=$set_id_d"]],
-        ]])]);
-}
-if(mb_stripos($data,"del_kassa_yes=")!==false){
-    $shop_id_d=explode("=",$data)[1];
-    mysqli_query($connect,"DELETE FROM shops WHERE shop_id='$shop_id_d' AND user_id='$cid'");
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"🗑️ <b>Kassa o'chirildi!</b>",'parse_mode'=>'html',
-        'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"⏪ Kassalarim",'callback_data'=>"Kassalarim"]]]])]);
-}
-
-// Foydalanuvchi "Kassa ulash" tugmasi
+// KASSA ULASH — foydalanuvchi tugmasi
 if(mb_stripos($data,"req_connect=")!==false){
     $parts=explode("=",$data); $shop_id_r=$parts[1]; $user_id_r=$parts[2];
     bot('sendMessage',['chat_id'=>$administrator,
         'text'=>"📨 <b>Kassa ulash so'rovi!</b>\n\n👤 Foydalanuvchi ID: <code>$user_id_r</code>\n🏪 Kassa ID: <code>$shop_id_r</code>",
         'parse_mode'=>'html',
-        'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔗 Ulash",'callback_data'=>"admin_connect=$shop_id_r=$user_id_r"]]]])]);
+        'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔗 Ulash",'callback_data'=>"admin_do_connect=$shop_id_r=$user_id_r"]]]])]);
     bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"✅ So'rov adminga yuborildi!",'show_alert'=>true]);
     bot('sendMessage',['chat_id'=>$cid,
-        'text'=>"📨 <b>Kassa ulash uchun Administratorga murojaat qiling</b>\n\n👤 Sizning ID: <code>$cid</code>\n📧 Kassa uchun e-mail so'raladi, va sizga tushuntiriladi hamda ulab beriladi.\n\n👨‍💻 Admin: @Matvafaevv",
+        'text'=>"📨 <b>Kassa ulash uchun Administratorga murojaat qiling</b>\n\n🏪 Kassa Shop ID: <code>$shop_id_r</code>\n📧 Kassa uchun e-mail so'raladi, va sizga tushuntiriladi hamda ulab beriladi.\n\n👨‍💻 Admin: @xmtvv1",
         'parse_mode'=>'html']);
 }
 
-// Admin paneldan kassa ulash
+// ADMIN — Kassa ulash (paneldan)
 if($text=="🔗 Kassa ulash"&&in_array($cid,$admin)){
-    mysqli_query($connect,"UPDATE users SET step='admin_connect_step' WHERE user_id='$cid'");
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"👤 <b>Foydalanuvchi ID ni kiriting:</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"🗄️ Boshqaruv"]]]])]);
-}
-if($step=="admin_connect_step"&&in_array($cid,$admin)){
-    if($text=="🗄️ Boshqaruv"){ mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'"); exit; }
-    $target=intval($text);
-    $shops_r=mysqli_query($connect,"SELECT * FROM shops WHERE user_id='$target'");
-    if(mysqli_num_rows($shops_r)==0){
-        bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ Bu foydalanuvchida kassa topilmadi!",'reply_markup'=>$panel]);
-        mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'"); exit;
-    }
-    $key2=[];
-    while($sh=mysqli_fetch_assoc($shops_r)) $key2[]=[['text'=>"🏪 ".base64_decode($sh['shop_name']),'callback_data'=>"do_connect=".$sh['shop_id']."=$target"]];
-    mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Kassani tanlang:</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>$key2])]);
-}
-if(mb_stripos($data,"admin_connect=")!==false){
-    $parts=explode("=",$data); $shop_id_ac=$parts[1]; $user_id_ac=$parts[2];
-    $shops_r=mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='$shop_id_ac'");
-    $key2=[];
-    while($sh=mysqli_fetch_assoc($shops_r)) $key2[]=[['text'=>"🏪 ".base64_decode($sh['shop_name']),'callback_data'=>"do_connect=$shop_id_ac=$user_id_ac"]];
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"✅ <b>Kassani tanlang:</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>$key2])]);
-}
-if(mb_stripos($data,"do_connect=")!==false){
-    $parts=explode("=",$data); $shop_id_dc=$parts[1]; $user_id_dc=$parts[2];
-    mysqli_query($connect,"UPDATE users SET step='do_connect_phone=$shop_id_dc=$user_id_dc' WHERE user_id='$cid'");
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"📞 <b>Telefon raqamini kiriting:</b>\n\nMasalan: 998901234567",'parse_mode'=>'html']);
-}
-if(mb_stripos($step,"do_connect_phone=")!==false&&in_array($cid,$admin)){
-    $parts=explode("=",$step); $shop_id_dc=$parts[1]; $user_id_dc=$parts[2];
-    $phone_num=preg_replace('/[^0-9]/','',trim($text));
-    mysqli_query($connect,"UPDATE shops SET phone='$phone_num', month_status='Toʻlandi', over_day=30 WHERE shop_id='$shop_id_dc'");
-    mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Kassa ulandi!</b>\n\n🏪 Kassa: <code>$shop_id_dc</code>\n📞 Raqam: <code>$phone_num</code>",'parse_mode'=>'html','reply_markup'=>$panel]);
-    bot('sendMessage',['chat_id'=>$user_id_dc,'text'=>"✅ <b>Kassangiz ulandi! To'lovlar avtomatik qabul qilinadi.</b>",'parse_mode'=>'html']);
+    mysqli_query($connect,"UPDATE users SET step='admin_connect_shop' WHERE user_id='$cid'");
+    bot('sendMessage',['chat_id'=>$cid,
+        'text'=>"🏪 <b>Kassani ulash uchun Shop ID kiriting:</b>",
+        'parse_mode'=>'html',
+        'reply_markup'=>json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"🗄️ Boshqaruv"]]]])]);
 }
 
-// Kassa qo'shish
+if($step=="admin_connect_shop"&&in_array($cid,$admin)){
+    if($text=="🗄️ Boshqaruv"){ mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'"); exit; }
+    $shop_id_inp=mysqli_real_escape_string($connect,trim($text));
+    $shop_r=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='$shop_id_inp'"));
+    if(!$shop_r){
+        bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ Bu Shop ID topilmadi!",'reply_markup'=>$panel]);
+        mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'"); exit;
+    }
+    $nomi=base64_decode($shop_r['shop_name']);
+    $status_r=$shop_r['status'];
+    $phone_r=$shop_r['phone']??null;
+    $month_r=$shop_r['month_status']??"Toʻlanmagan";
+    $owner_id=$shop_r['user_id'];
+
+    mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
+    bot('sendMessage',['chat_id'=>$cid,
+        'text'=>"🏪 <b>$nomi</b>\n\n".
+            "🆔 Shop ID: <code>$shop_id_inp</code>\n".
+            "👤 Egasi ID: <code>$owner_id</code>\n".
+            "📊 Holat: <b>$status_r</b>\n".
+            "💳 Oylik to'lov: <b>$month_r</b>\n".
+            "📞 Raqam: ".($phone_r?"<code>$phone_r</code>":"Kiritilmagan"),
+        'parse_mode'=>'html',
+        'reply_markup'=>json_encode(['inline_keyboard'=>[
+            [['text'=>"✅ Kassani faollashtirish",'callback_data'=>"activate_kassa=$shop_id_inp"]],
+            [['text'=>"⏪ Ortga",'callback_data'=>"panel_back"]],
+        ]])]);
+}
+
+if($data=="panel_back"&&in_array($cid,$admin)){
+    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"<b>Administrator paneli!</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>Administrator paneli!</b>",'parse_mode'=>'html','reply_markup'=>$panel]);
+}
+
+// Admin callback orqali ulash
+if(mb_stripos($data,"admin_do_connect=")!==false&&in_array($cid,$admin)){
+    $parts=explode("=",$data); $shop_id_ac=$parts[1]; $user_id_ac=$parts[2];
+    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
+        'text'=>"📞 <b>Telefon raqamini kiriting:</b>\n\nMasalan: 998901234567",
+        'parse_mode'=>'html']);
+    mysqli_query($connect,"UPDATE users SET step='activate_phone=$shop_id_ac=$user_id_ac' WHERE user_id='$cid'");
+}
+
+// Admin kassani faollashtirish tugmasi
+if(mb_stripos($data,"activate_kassa=")!==false&&in_array($cid,$admin)){
+    $shop_id_ak=explode("=",$data)[1];
+    $shop_r=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='$shop_id_ak'"));
+    $owner_id=$shop_r['user_id'];
+    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
+        'text'=>"📞 <b>Telefon raqamini kiriting:</b>\n\nMasalan: 998901234567",
+        'parse_mode'=>'html']);
+    mysqli_query($connect,"UPDATE users SET step='activate_phone=$shop_id_ak=$owner_id' WHERE user_id='$cid'");
+}
+
+// Telefon raqam kiritish
+if(mb_stripos($step,"activate_phone=")!==false&&in_array($cid,$admin)){
+    $parts=explode("=",$step); $shop_id_ak=$parts[1]; $owner_id=$parts[2];
+    $phone_num=preg_replace('/[^0-9]/','',trim($text));
+    if(strlen($phone_num)<9){ bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ Noto'g'ri raqam! Qayta kiriting.",'parse_mode'=>'html']); exit; }
+    mysqli_query($connect,"UPDATE users SET step='activate_email=$shop_id_ak=$owner_id=$phone_num' WHERE user_id='$cid'");
+    bot('sendMessage',['chat_id'=>$cid,
+        'text'=>"📧 <b>Foydalanuvchi emailini kiriting:</b>\n\n<i>Cloudmailin emailini kiriting</i>",
+        'parse_mode'=>'html']);
+}
+
+// Email kiritish
+if(mb_stripos($step,"activate_email=")!==false&&in_array($cid,$admin)){
+    $parts=explode("=",$step); $shop_id_ak=$parts[1]; $owner_id=$parts[2]; $phone_num=$parts[3];
+    $email_inp=trim($text);
+    if(!filter_var($email_inp,FILTER_VALIDATE_EMAIL)){
+        bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ Noto'g'ri email! Qayta kiriting.",'parse_mode'=>'html']); exit;
+    }
+    // Kassani faollashtirish
+    mysqli_query($connect,"UPDATE shops SET phone='$phone_num', email='".mysqli_real_escape_string($connect,$email_inp)."', month_status='Toʻlandi', over_day=30 WHERE shop_id='$shop_id_ak'");
+    mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
+
+    $shop_r=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='$shop_id_ak'"));
+    $nomi=base64_decode($shop_r['shop_name']);
+
+    bot('sendMessage',['chat_id'=>$cid,
+        'text'=>"✅ <b>Kassa to'liq faollashdi!</b>\n\n🏪 Kassa: <b>$nomi</b>\n📞 Raqam: <code>$phone_num</code>\n📧 Email: <code>$email_inp</code>",
+        'parse_mode'=>'html','reply_markup'=>$panel]);
+
+    // Foydalanuvchiga xabar
+    bot('sendMessage',['chat_id'=>$owner_id,
+        'text'=>"✅ <b>Kassangiz to'liq faollashdi!</b>\n\n🏪 <b>$nomi</b>\nEndi to'lovlar avtomatik qabul qilinadi.\n\n📧 Email: <code>$email_inp</code>",
+        'parse_mode'=>'html']);
+}
+
+// KASSA QO'SHISH
 if($data=="add_kassa"){
     bot('deletemessage',['chat_id'=>$cid,'message_id'=>$mid]);
     bot('sendmessage',['chat_id'=>$cid,'text'=>"🛍️ <b>Yangi kassa qoʻshish!</b>\n\nKassa nomini yuboring:",'parse_mode'=>'html','reply_markup'=>$back]);
@@ -609,7 +650,7 @@ if(mb_stripos($data,"confirm=")!==false){
     $id=explode("=",$data)[1];
     $rew=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='$id'"));
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"✅ <b>Tasdiqlandi! #$id</b>",'parse_mode'=>'html']);
-    bot('sendmessage',['chat_id'=>$rew['user_id'],'text'=>"✅ <b>Kassangiz tasdiqlandi! #$id</b>",'parse_mode'=>'html','reply_markup'=>$m]);
+    bot('sendmessage',['chat_id'=>$rew['user_id'],'text'=>"✅ <b>Kassangiz tasdiqlandi! #$id</b>\n\nEndi sozlamalardan karta va email kiriting, so'ng kassa ulash orqali to'liq faollashtirasiz.",'parse_mode'=>'html','reply_markup'=>$m]);
     mysqli_query($connect,"UPDATE shops SET status='confirm' WHERE shop_id='$id'");
     exit;
 }
@@ -622,9 +663,7 @@ if(mb_stripos($data,"canceled=")!==false){
     exit;
 }
 
-// =====================================
 // ADMIN PANEL
-// =====================================
 if($text=="🗄️ Boshqaruv"||$text=="/panel"){
     if(in_array($cid,$admin)){
         mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
@@ -679,9 +718,7 @@ if($text=="📨 Xabar yuborish"&&in_array($cid,$admin)){
     if(!mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM `send`"))){
         bot('SendMessage',['chat_id'=>$cid,'text'=>"<b>Xabarni kiriting:</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"🗄️ Boshqaruv"]]]])]);
         mysqli_query($connect,"UPDATE users SET step='send' WHERE user_id='$cid'");
-    }else{
-        bot('sendMessage',['chat_id'=>$cid,'text'=>"Hozirda yuborish davom etmoqda!"]);
-    }
+    }else bot('sendMessage',['chat_id'=>$cid,'text'=>"Hozirda yuborish davom etmoqda!"]);
     exit;
 }
 if($step=="send"&&in_array($cid,$admin)){
@@ -740,13 +777,14 @@ if($text=="🗑️ Kanal o'chirish"&&in_array($cid,$admin)){
             $btn[]=['text'=>"🗑️ $gt",'callback_data'=>"delchan=".$row['channelID']];
         }
         bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>O'chirish uchun tanlang:</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>array_chunk($btn,1)])]);
-    }else{
-        bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>Kanal yo'q!</b>",'parse_mode'=>'html']);
-    }
+    }else bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>Kanal yo'q!</b>",'parse_mode'=>'html']);
 }
 if(stripos($data,"delchan=")!==false){
     $ex=explode("=",$data)[1];
     $connect->query("DELETE FROM channels WHERE channelID='$ex'");
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"✅ <b>Kanal oʻchirildi!</b>",'parse_mode'=>'html']);
 }
+
+// email ustuni shops jadvaliga qo'shish (agar yo'q bo'lsa)
+// TablePlus da: ALTER TABLE shops ADD COLUMN IF NOT EXISTS email varchar(255) DEFAULT NULL;
 ?>
