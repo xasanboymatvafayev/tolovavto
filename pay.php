@@ -297,7 +297,7 @@ $total_secs = 5 * 60;
     <div class="card-info">
       <div class="card-info-item">
         <label>Karta egasi</label>
-        <span>TOLOVCHI</span>
+        <span>X.M</span>
       </div>
       <div class="card-info-item" style="text-align:right;">
         <label>Bank</label>
