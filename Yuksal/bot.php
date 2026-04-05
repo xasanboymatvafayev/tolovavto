@@ -255,7 +255,7 @@ if(mb_stripos($data,"cancel_order=")!==false){
 }
 
 if($text=="📖 API Hujjatlar"){
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>📖 API Hujjatlar:</b>\nhttps://$sub_domen/docs.html",'disable_web_page_preview'=>true,'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"📁 API Docs",'url'=>"https://$sub_domen/docs.html"]]]])]);
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>📖 API Hujjatlar:</b>\nhttps://tolovchiuz.vercel.app",'disable_web_page_preview'=>true,'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"📁 API Docs",'url'=>"https://tolovchiuz.vercel.app/api.html"]]]])]);
     exit;
 }
 
