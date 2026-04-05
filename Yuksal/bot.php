@@ -99,7 +99,12 @@ if(isset($message)){
 }
 
 $menu   = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"🏪 Kassalarim"]],[['text'=>"💵 Hisobim"],['text'=>"💳 To'ldirish"]],[['text'=>"📕 Qoʻllanma"],['text'=>"📖 API Hujjatlar"]]]]);
-$menu_p = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"🏪 Kassalarim"]],[['text'=>"💵 Hisobim"],['text'=>"💳 To'ldirish"]],[['text'=>"📕 Qoʻllanma"],['text'=>"📖 API Hujjatlar"]],[['text'=>"🗄️ Boshqaruv"]]]]]);
+$menu_p = json_encode(['resize_keyboard'=>true,'keyboard'=>[
+    [['text'=>"🏪 Kassalarim"]],
+    [['text'=>"💵 Hisobim"],['text'=>"💳 To'ldirish"]],
+    [['text'=>"📕 Qoʻllanma"],['text'=>"📖 API Hujjatlar"]],
+    [['text'=>"🗄️ Boshqaruv"]]
+]]);
 $panel  = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"📊 Statistika"],['text'=>"📢 Kanallar"]],[['text'=>"🗑️ Kanal o'chirish"]],[['text'=>"👤 Foydalanuvchi"],['text'=>"📨 Xabar yuborish"]],[['text'=>"🔗 Kassa ulash"]],[['text'=>"⏪ Ortga"]]]]);
 $back   = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"⏪ Ortga"]]]]);
 $m = in_array($cid,$admin) ? $menu_p : $menu;
