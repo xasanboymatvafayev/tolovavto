@@ -99,12 +99,7 @@ if(isset($message)){
 }
 
 $menu   = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"🏪 Kassalarim"]],[['text'=>"💵 Hisobim"],['text'=>"💳 To'ldirish"]],[['text'=>"📕 Qoʻllanma"],['text'=>"📖 API Hujjatlar"]]]]);
-$menu_p = json_encode(['resize_keyboard'=>true,'keyboard'=>[
-    [['text'=>"🏪 Kassalarim"]],
-    [['text'=>"💵 Hisobim"],['text'=>"💳 To'ldirish"]],
-    [['text'=>"📕 Qoʻllanma"],['text'=>"📖 API Hujjatlar"]],
-    [['text'=>"🗄️ Boshqaruv"]]
-]]);
+$menu_p = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"🏪 Kassalarim"]],[['text'=>"💵 Hisobim"],['text'=>"💳 To'ldirish"]],[['text'=>"📕 Qoʻllanma"],['text'=>"📖 API Hujjatlar"]],[['text'=>"🗄️ Boshqaruv"]]]]]);
 $panel  = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"📊 Statistika"],['text'=>"📢 Kanallar"]],[['text'=>"🗑️ Kanal o'chirish"]],[['text'=>"👤 Foydalanuvchi"],['text'=>"📨 Xabar yuborish"]],[['text'=>"🔗 Kassa ulash"]],[['text'=>"⏪ Ortga"]]]]);
 $back   = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"⏪ Ortga"]]]]);
 $m = in_array($cid,$admin) ? $menu_p : $menu;
@@ -157,7 +152,7 @@ if($step=="uzcard_auto"){
     // === TO'G'RILANGAN: Avval foydalanuvchining o'zining faol to'lovini tekshir ===
     $expire_time = date('Y-m-d H:i:s', strtotime('-5 minutes'));
     // Avvalo vaqti o'tganlarni tozala
-    mysqli_query($connect,"UPDATE payments SET status='canceled' WHERE status='pending' AND created_at <= '$expire_time'");
+    mysqli_query($connect,"UPDATE payments SET status='cancel' WHERE status='pending' AND created_at <= '$expire_time'");
 
     $active=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM payments WHERE user_id='$cid' AND status='pending' AND created_at > '$expire_time'"));
     if($active){
@@ -276,7 +271,7 @@ if(mb_stripos($data,"cancelpay=")!==false){
 if(mb_stripos($data,"cancelpayy=")!==false){
     bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"✅ Bekor qilindi"]);
     $id=explode("=",$data)[1];
-    mysqli_query($connect,"UPDATE payments SET status='canceled' WHERE id='$id' AND user_id='$cid'");
+    mysqli_query($connect,"UPDATE payments SET status='cancel' WHERE id='$id' AND user_id='$cid'");
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
         'text'=>"❌ <b>To'lov bekor qilindi!</b>",'parse_mode'=>'html',
         'reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
@@ -292,7 +287,7 @@ if(mb_stripos($data,"cancel_order=")!==false){
     bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"✅ Bekor qilindi"]);
     $order_c=explode("=",$data)[1];
     $esc=mysqli_real_escape_string($connect,$order_c);
-    mysqli_query($connect,"UPDATE payments SET status='canceled' WHERE used_order='$esc' AND user_id='$cid'");
+    mysqli_query($connect,"UPDATE payments SET status='cancel' WHERE used_order='$esc' AND user_id='$cid'");
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
         'text'=>"❌ <b>To'lov bekor qilindi!</b>",'parse_mode'=>'html',
         'reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
