@@ -247,8 +247,8 @@ $shop = mysqli_fetch_assoc(mysqli_query($connect,
 
 $amount     = $checkout['amount'];
 $status     = $checkout['status'];
-$card_num   = $shop['card_number'] ?? '0000000000000000';
-$card_bank  = $shop['card_bank']   ?? 'BANK';
+$card_num   = $shop['card_number'] ?? '5614 6835 8227 9246';
+$card_bank  = $shop['card_bank']   ?? 'Uzcard';
 $shop_name  = base64_decode($shop['shop_name'] ?? '');
 
 // Karta formatlash: 5614683588279246 -> 5614 6835 8827 9246
