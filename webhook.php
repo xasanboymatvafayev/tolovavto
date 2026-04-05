@@ -116,7 +116,7 @@ $merchant  = "Noma'lum";
 if      (preg_match('/Platezh:/i', $body))              { $type='debit';  $type_text="🔴 Chiqim (To'lov)";             $sign="➖"; }
 elseif  (preg_match('/Perevod\s+na\s+kartu:/i', $body)) { $type='credit'; $type_text="🟢 Kirim (O'tkazma olindi)";     $sign="➕"; }
 elseif  (preg_match('/POPOLN\s+SCHETA/i', $body))       { $type='credit'; $type_text="🟢 Kirim (Hisob to'ldirildi)";  $sign="➕"; }
-elseif  (preg_match('/SPISANIE/i', $body))               { $type='debit';  $type_text="🔴 Chiqim (Hisobdan chiqarish)",$sign="➖"; }
+elseif  (preg_match('/SPISANIE/i', $body))               { $type='debit';  $type_text="🔴 Chiqim (Hisobdan chiqarish)"; $sign="➖"; }
 elseif  (preg_match('/ZACHISLENIE/i', $body))            { $type='credit'; $type_text="🟢 Kirim (Hisobga tushirildi)"; $sign="➕"; }
 
 if (preg_match('/(?:Platezh|Perevod na kartu|Perevod):\s*([^,]+(?:,[^,]+)?),\s*(?:UZ|KZ|RU)/i', $body, $mm)) {
