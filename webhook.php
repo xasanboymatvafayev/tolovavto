@@ -170,14 +170,35 @@ if ($ins) {
             $checkout_id  = $checkout['id'];
             $checkout_order = $checkout['order'];
             $checkout_shop  = $checkout['shop_id'];
+            $checkout_user  = $checkout['user_id'] ?? null; // Bot foydalanuvchi ID
             
             // Checkout ni paid qilish
-            mysqli_query($connect, "UPDATE checkout SET status='paid' WHERE id='$checkout_id'");
+            mysqli_query($connect, "UPDATE checkout SET status='paid', paid_to_user='1' WHERE id='$checkout_id'");
             
             // Payments jadvalida ham used_order ni belgilash
             mysqli_query($connect, 
                 "UPDATE payments SET status='used', used_order='$checkout_order' WHERE id='$new_payment_id'"
             );
+            
+            // === BOT FOYDALANUVCHISI BALANSI (agar checkout bot tomonidan yaratilgan bo'lsa) ===
+            if ($checkout_shop === 'main' && !empty($checkout_user)) {
+                mysqli_query($connect,
+                    "UPDATE users SET balance=balance+$amount, deposit=deposit+$amount WHERE user_id='$checkout_user'"
+                );
+                // Bot orqali foydalanuvchiga xabar yuborish
+                $bot_token_local = getenv('TELEGRAM_BOT_TOKEN');
+                if ($bot_token_local) {
+                    $notify_ch = curl_init("https://api.telegram.org/bot$bot_token_local/sendMessage");
+                    curl_setopt($notify_ch, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($notify_ch, CURLOPT_POSTFIELDS, [
+                        'chat_id'    => $checkout_user,
+                        'text'       => "✅ <b>To'lov tasdiqlandi!</b>\n\n💵 <b>" . number_format($amount, 0, '.', ' ') . "</b> so'm hisobingizga avtomatik qo'shildi!",
+                        'parse_mode' => 'HTML'
+                    ]);
+                    curl_exec($notify_ch);
+                    curl_close($notify_ch);
+                }
+            }
             
             // Do'kon balansini oshirish
             $shops_row = mysqli_fetch_assoc(mysqli_query($connect, 
