@@ -58,7 +58,6 @@ foreach ($lm[0] as $l) {
 // UZCARD EMAIL PARSE
 // ============================================
 
-// Summa va balansni olish
 if (!preg_match('/summa:([\d]+(?:[.,]\d+)?)\s*UZS\s+balans:([\d]+(?:[.,]\d+)?)\s*UZS/i', $body, $sm)) {
     http_response_code(200);
     echo json_encode(['status' => 'skip', 'reason' => 'no payment found']);
@@ -74,62 +73,44 @@ if ($amount <= 0) {
     exit;
 }
 
-// Karta oxirgi 4 raqam
 $card_last = '****';
 if (preg_match('/karta\s+\*+(\d{4})/i', $body, $cm)) {
     $card_last = $cm[1];
 }
 
-// Vaqt
 $op_date = date('d.m.Y H:i');
 if (preg_match('/(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})/i', $body, $dm)) {
     $date_parts = explode('.', $dm[1]);
     $op_date = $date_parts[0] . '.' . $date_parts[1] . '.20' . $date_parts[2] . ' ' . $dm[2];
 }
 
-// ============================================
-// OPERATSIYA TURINI ANIQLASH (TO'G'RILANGAN)
-// ============================================
-
 $type = 'debit';
 $type_text = "🔴 Chiqim (To'lov)";
 $sign = "➖";
 $merchant = "Noma'lum";
 
-// Chiqim (debit) - kartadan pul chiqadi
-// Misol: "Platezh: OPENBANK ..., summa:1000.00 UZS"
 if (preg_match('/Platezh:/i', $body)) {
     $type = 'debit';
     $type_text = "🔴 Chiqim (To'lov)";
     $sign = "➖";
-}
-// Kirim (credit) - kartaga pul tushadi
-// Misol: "Perevod na kartu: OPENBANK ..., summa:2000.00 UZS"
-elseif (preg_match('/Perevod\s+na\s+kartu:/i', $body)) {
+} elseif (preg_match('/Perevod\s+na\s+kartu:/i', $body)) {
     $type = 'credit';
     $type_text = "🟢 Kirim (O'tkazma olindi)";
     $sign = "➕";
-}
-// Hisobni to'ldirish (credit)
-elseif (preg_match('/POPOLN\s+SCHETA/i', $body)) {
+} elseif (preg_match('/POPOLN\s+SCHETA/i', $body)) {
     $type = 'credit';
     $type_text = "🟢 Kirim (Hisob to'ldirildi)";
     $sign = "➕";
-}
-// Qo'shimcha tekshiruv: agar matnda "SPISANIE" (hisobdan chiqarish) bo'lsa
-elseif (preg_match('/SPISANIE/i', $body)) {
+} elseif (preg_match('/SPISANIE/i', $body)) {
     $type = 'debit';
     $type_text = "🔴 Chiqim (Hisobdan chiqarish)";
     $sign = "➖";
-}
-// Qo'shimcha tekshiruv: agar matnda "ZACHISLENIE" (hisobga tushirish) bo'lsa
-elseif (preg_match('/ZACHISLENIE/i', $body)) {
+} elseif (preg_match('/ZACHISLENIE/i', $body)) {
     $type = 'credit';
     $type_text = "🟢 Kirim (Hisobga tushirildi)";
     $sign = "➕";
 }
 
-// Merchant/Manba aniqlash
 if (preg_match('/(?:Platezh|Perevod na kartu|Perevod):\s*([^,]+(?:,[^,]+)?),\s*(?:UZ|KZ|RU)/i', $body, $mm)) {
     $raw_merchant = trim($mm[1]);
     $raw_merchant = preg_replace('/\s*UZCARD\s*POPOLN\s*SCHETA/i', '', $raw_merchant);
@@ -139,7 +120,6 @@ if (preg_match('/(?:Platezh|Perevod na kartu|Perevod):\s*([^,]+(?:,[^,]+)?),\s*(
     if (empty($merchant)) $merchant = 'OPENBANK';
 }
 
-// Agar merchant topilmagan bo'lsa va POPOLN bo'lsa
 if ($merchant == "Noma'lum" && preg_match('/POPOLN\s+SCHETA/i', $body)) {
     $merchant = "UzCard hisobni to'ldirish";
 }
@@ -154,7 +134,7 @@ if (mysqli_num_rows($check) > 0) {
 
 // DB ga saqlash
 $ins = mysqli_query($connect, "INSERT INTO payments
-(message_id, amount, merchant, date, card_type, raw_message, created_at)
+(message_id, amount, merchant, date, card_type, raw_message, status, created_at)
 VALUES (
 '" . mysqli_real_escape_string($connect, $message_id) . "',
 '$amount',
@@ -162,12 +142,74 @@ VALUES (
 '" . mysqli_real_escape_string($connect, $op_date) . "',
 '$type',
 '" . mysqli_real_escape_string($connect, mb_substr($body, 0, 500)) . "',
+'pending',
 NOW()
 )");
 
 if ($ins) {
+    $new_payment_id = mysqli_insert_id($connect);
     $amt_fmt = number_format($amount, 0, '.', ' ');
     $bal_fmt = number_format($balance, 0, '.', ' ');
+
+    // ============================================
+    // === TO'G'RILANGAN: Checkout bilan bog'lash ===
+    // Agar bu KIRIM (credit) bo'lsa, pending checkout ni qidirish
+    // ============================================
+    if ($type === 'credit') {
+        $expire_time = date('Y-m-d H:i:s', strtotime('-5 minutes'));
+        
+        // Mos pending checkout qidirish (miqdor bo'yicha)
+        $checkout_res = mysqli_query($connect,
+            "SELECT * FROM checkout 
+             WHERE amount='$amount' AND status='pending' AND date > '$expire_time'
+             ORDER BY date ASC LIMIT 1"
+        );
+        
+        if ($checkout_res && mysqli_num_rows($checkout_res) > 0) {
+            $checkout = mysqli_fetch_assoc($checkout_res);
+            $checkout_id  = $checkout['id'];
+            $checkout_order = $checkout['order'];
+            $checkout_shop  = $checkout['shop_id'];
+            
+            // Checkout ni paid qilish
+            mysqli_query($connect, "UPDATE checkout SET status='paid' WHERE id='$checkout_id'");
+            
+            // Payments jadvalida ham used_order ni belgilash
+            mysqli_query($connect, 
+                "UPDATE payments SET status='used', used_order='$checkout_order' WHERE id='$new_payment_id'"
+            );
+            
+            // Do'kon balansini oshirish
+            $shops_row = mysqli_fetch_assoc(mysqli_query($connect, 
+                "SELECT * FROM shops WHERE shop_id='" . mysqli_real_escape_string($connect, $checkout_shop) . "'"
+            ));
+            if ($shops_row) {
+                $new_balance = $shops_row['shop_balance'] + $amount;
+                mysqli_query($connect, 
+                    "UPDATE shops SET shop_balance='$new_balance' WHERE shop_id='" . mysqli_real_escape_string($connect, $checkout_shop) . "'"
+                );
+                
+                // Do'kon webhook ga xabar
+                if (!empty($shops_row['webhook_url'])) {
+                    $payload = json_encode([
+                        'status'   => 'paid',
+                        'order'    => $checkout_order,
+                        'amount'   => $amount,
+                        'merchant' => $merchant,
+                        'date'     => $op_date,
+                    ]);
+                    $wh_ch = curl_init($shops_row['webhook_url']);
+                    curl_setopt($wh_ch, CURLOPT_RETURNTRANSFER, true);
+                    curl_setopt($wh_ch, CURLOPT_POST, true);
+                    curl_setopt($wh_ch, CURLOPT_POSTFIELDS, $payload);
+                    curl_setopt($wh_ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+                    curl_setopt($wh_ch, CURLOPT_TIMEOUT, 5);
+                    curl_exec($wh_ch);
+                    curl_close($wh_ch);
+                }
+            }
+        }
+    }
 
     $msg  = "🔔 <b>UZCARD Bildirishnomasi</b>\n";
     $msg .= "$type_text\n";
@@ -179,30 +221,7 @@ if ($ins) {
     $msg .= "━━━━━━━━━━━━━━\n";
     $msg .= "💵 Qoldiq: <b>$bal_fmt UZS</b>";
 
-    // Admin ga yuborish
     sendTelegram($msg, $bot_token, $admin_id);
-
-    // Foydalanuvchi webhook lariga yuborish
-    $shops = mysqli_query($connect, "SELECT * FROM shops WHERE status='confirm' AND phone IS NOT NULL AND webhook_url IS NOT NULL AND webhook_url != ''");
-    while ($shop = mysqli_fetch_assoc($shops)) {
-        $wh = $shop['webhook_url'];
-        $payload = json_encode([
-            'status'   => 'paid',
-            'amount'   => $amount,
-            'merchant' => $merchant,
-            'date'     => $op_date,
-            'type'     => $type,
-            'balance'  => $balance,
-        ]);
-        $wh_ch = curl_init($wh);
-        curl_setopt($wh_ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($wh_ch, CURLOPT_POST, true);
-        curl_setopt($wh_ch, CURLOPT_POSTFIELDS, $payload);
-        curl_setopt($wh_ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-        curl_setopt($wh_ch, CURLOPT_TIMEOUT, 5);
-        curl_exec($wh_ch);
-        curl_close($wh_ch);
-    }
 }
 
 http_response_code(200);
