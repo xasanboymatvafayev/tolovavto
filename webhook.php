@@ -148,9 +148,29 @@ if (mysqli_num_rows($col_shop) == 0) {
     mysqli_query($connect, "ALTER TABLE payments ADD COLUMN shop_id varchar(50) DEFAULT NULL");
 }
 
+// Karta oxirgi 4 raqami orqali qaysi kassanikini aniqlash
+$payment_shop_id = null;
+if ($card_last !== '****') {
+    $shop_by_card = mysqli_fetch_assoc(mysqli_query($connect,
+        "SELECT shop_id, card_number FROM shops WHERE card_number IS NOT NULL AND card_number != ''"
+    ));
+    // Barcha kassalarni tekshirish
+    $all_shops = mysqli_query($connect,
+        "SELECT shop_id, card_number FROM shops WHERE card_number IS NOT NULL AND card_number != ''"
+    );
+    while ($sh = mysqli_fetch_assoc($all_shops)) {
+        $clean_card = preg_replace('/\s+/', '', $sh['card_number']);
+        if (substr($clean_card, -4) === $card_last) {
+            $payment_shop_id = $sh['shop_id'];
+            break;
+        }
+    }
+}
+$payment_shop_esc = $payment_shop_id ? mysqli_real_escape_string($connect, $payment_shop_id) : null;
+
 // DB ga saqlash
 $ins = mysqli_query($connect, "INSERT INTO payments
-(message_id, amount, merchant, date, card_type, raw_message, status, created_at)
+(message_id, amount, merchant, date, card_type, raw_message, status, created_at" . ($payment_shop_esc ? ", shop_id" : "") . ")
 VALUES (
 '$mid_esc',
 '$amount',
@@ -159,7 +179,7 @@ VALUES (
 '$type',
 '" . mysqli_real_escape_string($connect, mb_substr($body, 0, 500)) . "',
 'pending',
-NOW()
+NOW()" . ($payment_shop_esc ? ", '$payment_shop_esc'" : "") . "
 )");
 
 if ($ins) {
