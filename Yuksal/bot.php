@@ -440,7 +440,6 @@ if(mb_stripos($data,"kassa_sozlama=")!==false){
             "🔗 Manzil: <b>".$rew['shop_address']."</b>",
         'parse_mode'=>'html',
         'reply_markup'=>json_encode(['inline_keyboard'=>[
-            [['text'=>"🔗 Webhook / Callback",'callback_data'=>"set_webhook=$shop_id_s=$set_id_s"]],
             [['text'=>"💳 Karta raqam kiritish",'callback_data'=>"set_card=$shop_id_s=$set_id_s"]],
             [['text'=>"📩 Kassa ulash",'callback_data'=>"req_connect=$shop_id_s=$cid"]],
             [['text'=>"⚠️ Keyni yangilash",'callback_data'=>"new_key=$shop_id_s"]],
@@ -516,12 +515,11 @@ if(mb_stripos($data,"kassa_history=")!==false){
     $offset = ($page-1)*$per_page;
     $shop_id_h_esc = mysqli_real_escape_string($connect, $shop_id_h);
     
-    // Jami yozuvlar soni - shop_id bo'yicha (agar bor bo'lsa) + checkout orqali
+    // Jami yozuvlar soni - payments.shop_id yoki checkout orqali
     $total_r = mysqli_fetch_assoc(mysqli_query($connect,
         "SELECT COUNT(*) as c FROM payments p
           LEFT JOIN checkout ch ON ch.`order` = p.used_order
-          WHERE p.shop_id='$shop_id_h_esc'
-             OR (p.shop_id IS NULL AND ch.shop_id='$shop_id_h_esc')"
+          WHERE COALESCE(p.shop_id, ch.shop_id) = '$shop_id_h_esc'"
     ));
     $total = (int)($total_r['c']??0);
     $total_pages = max(1, ceil($total/$per_page));
@@ -531,8 +529,7 @@ if(mb_stripos($data,"kassa_history=")!==false){
         "SELECT p.amount, p.date, p.card_type, p.merchant, p.status, p.used_order
          FROM payments p
          LEFT JOIN checkout ch ON ch.`order` = p.used_order
-         WHERE p.shop_id='$shop_id_h_esc'
-            OR (p.shop_id IS NULL AND ch.shop_id='$shop_id_h_esc')
+         WHERE COALESCE(p.shop_id, ch.shop_id) = '$shop_id_h_esc'
          ORDER BY p.created_at DESC, p.id DESC
          LIMIT $per_page OFFSET $offset"
     );
@@ -571,8 +568,7 @@ if(mb_stripos($data,"kassa_history=")!==false){
                COALESCE(SUM(CASE WHEN p.card_type='debit' THEN p.amount ELSE 0 END),0) as jami_chiqim
              FROM payments p
              LEFT JOIN checkout ch ON ch.`order` = p.used_order
-             WHERE p.shop_id='$shop_id_h_esc'
-                OR (p.shop_id IS NULL AND ch.shop_id='$shop_id_h_esc')"
+             WHERE COALESCE(p.shop_id, ch.shop_id) = '$shop_id_h_esc'"
         ));
         $kirim_fmt = number_format((int)$stats['jami_kirim'], 0, '.', ' ');
         $chiqim_fmt = number_format((int)$stats['jami_chiqim'], 0, '.', ' ');
@@ -666,24 +662,7 @@ if(mb_stripos($data,"card_bank=")!==false){
 }
 
 // WEBHOOK
-if(mb_stripos($data,"set_webhook=")!==false){
-    $parts=explode("=",$data); $shop_id_w=$parts[1]; $set_id_w=$parts[2];
-    mysqli_query($connect,"UPDATE users SET step='set_webhook=$shop_id_w=$set_id_w' WHERE user_id='$cid'");
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
-        'text'=>"🔗 <b>Webhook URL ni kiriting:</b>\n\nMasalan: https://sizning-sayt.uz/webhook",
-        'parse_mode'=>'html']);
-    exit;
-}
-if(mb_stripos($step,"set_webhook=")!==false){
-    $parts=explode("=",$step); $shop_id_w=$parts[1]; $set_id_w=$parts[2];
-    if($text=="⏪ Ortga"){ mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'"); exit; }
-    if(!filter_var($text,FILTER_VALIDATE_URL)){ bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ https:// bilan boshlanishi kerak.",'parse_mode'=>'html']); exit; }
-    mysqli_query($connect,"UPDATE shops SET webhook_url='".mysqli_real_escape_string($connect,$text)."' WHERE shop_id='$shop_id_w'");
-    mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Webhook saqlandi!</b>\n\n<code>$text</code>",'parse_mode'=>'html',
-        'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"⏪ Ortga",'callback_data'=>"kassa_sozlama=$shop_id_w=$set_id_w"]]]])]);
-    exit;
-}
+// set_webhook funksiyasi o'chirildi
 
 // KEY YANGILASH
 if(mb_stripos($data,"new_key=")!==false){
@@ -696,13 +675,15 @@ if(mb_stripos($data,"new_key=")!==false){
 // KASSA ULASH
 if(mb_stripos($data,"req_connect=")!==false){
     $parts=explode("=",$data); $shop_id_r=$parts[1]; $user_id_r=$parts[2];
-    bot('sendMessage',['chat_id'=>$administrator,
-        'text'=>"📨 <b>Kassa ulash so'rovi!</b>\n\n👤 Foydalanuvchi ID: <code>$user_id_r</code>\n🏪 Kassa ID: <code>$shop_id_r</code>",
-        'parse_mode'=>'html',
-        'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔗 Ulash",'callback_data'=>"admin_do_connect=$shop_id_r=$user_id_r"]]]])]);
-    bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"✅ So'rov adminga yuborildi!",'show_alert'=>true]);
+    $shop_email_r = mysqli_fetch_assoc(mysqli_query($connect,"SELECT email FROM shops WHERE shop_id='$shop_id_r'"));
+    $email_show_r = $shop_email_r['email'] ?? 'Kiritilmagan';
+    bot('answerCallbackQuery',['callback_query_id'=>$qid]);
     bot('sendMessage',['chat_id'=>$cid,
-        'text'=>"📨 <b>Kassa ulash uchun Administratorga murojaat qiling</b>\n\n🏪 Kassa Shop ID: <code>$shop_id_r</code>\n\n👨‍💻 Admin: @xmtvv1",
+        'text'=>"📨 <b>Kassa ulash uchun Administratorga murojaat qiling</b>\n\n".
+            "🏪 Kassa Shop ID: <code>$shop_id_r</code>\n".
+            "📧 Kassa uchun e-mail: <code>$email_show_r</code>\n\n".
+            "Yuqoridagi ma'lumotlarni adminga yuboring, sizga tushuntiriladi hamda ulab beriladi.\n\n".
+            "👨‍💻 Admin: @xmtvv1",
         'parse_mode'=>'html']);
     exit;
 }
