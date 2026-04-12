@@ -3,7 +3,7 @@
 $sub_domen = "tolovavto-production.up.railway.app";
 require (__DIR__ . "/../config.php");
 
-$administrator = getenv('ADMIN_ID') ?: "7678663640";
+$administrator = getenv('ADMIN_ID') ?: "6365371142";
 $admin = [$administrator];
 
 // Settings jadvalini avtomatik yaratish
