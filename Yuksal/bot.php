@@ -680,9 +680,8 @@ if(mb_stripos($data,"req_connect=")!==false){
     bot('answerCallbackQuery',['callback_query_id'=>$qid]);
     bot('sendMessage',['chat_id'=>$cid,
         'text'=>"📨 <b>Kassa ulash uchun Administratorga murojaat qiling</b>\n\n".
-            "🏪 Kassa Shop ID: <code>$shop_id_r</code>\n".
-            "📧 Kassa uchun e-mail: <code>$email_show_r</code>\n\n".
-            "Yuqoridagi ma'lumotlarni adminga yuboring, sizga tushuntiriladi hamda ulab beriladi.\n\n".
+            "<code>$shop_id_r kassa uchun e-mail</code>\n".
+            "deb yozing, va sizga tushuntiriladi hamda ulab beriladi.\n\n".
             "👨‍💻 Admin: @xmtvv1",
         'parse_mode'=>'html']);
     exit;
