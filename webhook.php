@@ -68,11 +68,15 @@ function sendWebhookAsync($url, $payload_arr) {
     curl_close($ch);
 }
 
-// Tasdiqlash linklar
-preg_match_all('/https?:\/\/[^\s"\'<>]+/', $body, $lm);
+// Tasdiqlash linkni topish — raw HTML dan qidirish (strip_tags qilmasdan)
+$confirm_url = '';
+$search_in = $plain . " " . $html;
+preg_match_all('/https?:\/\/[^\s"'<>]+/', $search_in, $lm);
 foreach ($lm[0] as $l) {
     if (stripos($l,'verify')!==false || stripos($l,'confirm')!==false ||
-        stripos($l,'activate')!==false || stripos($l,'token')!==false) {
+        stripos($l,'activate')!==false || stripos($l,'token')!==false ||
+        stripos($l,'email')!==false) {
+        $confirm_url = $l;
         sendTelegramAsync("🔗 <b>Tasdiqlash linki:</b>\n$l", $bot_token, $admin_id);
         break;
     }
@@ -138,6 +142,12 @@ if (mysqli_num_rows($check) > 0) {
     exit;
 }
 
+// shop_id ustuni yo'q bo'lsa qo'shish
+$col_shop = mysqli_query($connect, "SHOW COLUMNS FROM payments LIKE 'shop_id'");
+if (mysqli_num_rows($col_shop) == 0) {
+    mysqli_query($connect, "ALTER TABLE payments ADD COLUMN shop_id varchar(50) DEFAULT NULL");
+}
+
 // DB ga saqlash
 $ins = mysqli_query($connect, "INSERT INTO payments
 (message_id, amount, merchant, date, card_type, raw_message, status, created_at)
@@ -184,9 +194,9 @@ if ($ins) {
                 mysqli_query($connect, "UPDATE checkout SET status='paid' WHERE id='$checkout_id'");
             }
 
-            // Payment ni used qilish
+            // Payment ni used qilish + shop_id ni ham saqlash
             mysqli_query($connect,
-                "UPDATE payments SET status='used', used_order='" . mysqli_real_escape_string($connect, $ch_order) . "' WHERE id='$new_payment_id'"
+                "UPDATE payments SET status='used', used_order='" . mysqli_real_escape_string($connect, $ch_order) . "', shop_id='" . mysqli_real_escape_string($connect, $ch_shop) . "' WHERE id='$new_payment_id'"
             );
 
             // === BALANS QO'SHISH (FIX: har doim user_id bo'lsa qo'shish) ===
@@ -229,11 +239,12 @@ if ($ins) {
                 // 1. Do'kon webhook URL ga (agar kiritilgan bo'lsa) — async
                 if (!empty($shop_wh_url)) {
                     sendWebhookAsync($shop_wh_url, [
-                        'status'   => 'paid',
-                        'order'    => $ch_order,
-                        'amount'   => $amount,
-                        'merchant' => $merchant,
-                        'date'     => $op_date,
+                        'status'      => 'paid',
+                        'order'       => $ch_order,
+                        'amount'      => $amount,
+                        'merchant'    => $merchant,
+                        'date'        => $op_date,
+                        'confirm_url' => $confirm_url,
                     ]);
                 }
 
