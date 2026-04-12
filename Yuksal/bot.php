@@ -3,7 +3,7 @@
 $sub_domen = "tolovavto-production.up.railway.app";
 require (__DIR__ . "/../config.php");
 
-$administrator = getenv('ADMIN_ID') ?: "6365371142";
+$administrator = getenv('ADMIN_ID') ?: "7678663640";
 $admin = [$administrator];
 
 // Settings jadvalini avtomatik yaratish
@@ -516,21 +516,23 @@ if(mb_stripos($data,"kassa_history=")!==false){
     $offset = ($page-1)*$per_page;
     $shop_id_h_esc = mysqli_real_escape_string($connect, $shop_id_h);
     
-    // Jami yozuvlar soni - checkout orqali faqat shu kassaga tegishli
+    // Jami yozuvlar soni - shop_id bo'yicha (agar bor bo'lsa) + checkout orqali
     $total_r = mysqli_fetch_assoc(mysqli_query($connect,
         "SELECT COUNT(*) as c FROM payments p
-          INNER JOIN checkout ch ON ch.`order` = p.used_order
-          WHERE ch.shop_id='$shop_id_h_esc'"
+          LEFT JOIN checkout ch ON ch.`order` = p.used_order
+          WHERE p.shop_id='$shop_id_h_esc'
+             OR (p.shop_id IS NULL AND ch.shop_id='$shop_id_h_esc')"
     ));
     $total = (int)($total_r['c']??0);
     $total_pages = max(1, ceil($total/$per_page));
     
-    // Kirim + chiqim - faqat shu kassa uchun (checkout orqali bog'langan)
+    // Barcha to'lovlar - kirim ham, chiqim ham
     $res = mysqli_query($connect,
         "SELECT p.amount, p.date, p.card_type, p.merchant, p.status, p.used_order
          FROM payments p
-         INNER JOIN checkout ch ON ch.`order` = p.used_order
-         WHERE ch.shop_id='$shop_id_h_esc'
+         LEFT JOIN checkout ch ON ch.`order` = p.used_order
+         WHERE p.shop_id='$shop_id_h_esc'
+            OR (p.shop_id IS NULL AND ch.shop_id='$shop_id_h_esc')
          ORDER BY p.created_at DESC, p.id DESC
          LIMIT $per_page OFFSET $offset"
     );
@@ -568,8 +570,9 @@ if(mb_stripos($data,"kassa_history=")!==false){
                COALESCE(SUM(CASE WHEN p.card_type='credit' THEN p.amount ELSE 0 END),0) as jami_kirim,
                COALESCE(SUM(CASE WHEN p.card_type='debit' THEN p.amount ELSE 0 END),0) as jami_chiqim
              FROM payments p
-             INNER JOIN checkout ch ON ch.`order` = p.used_order
-             WHERE ch.shop_id='$shop_id_h_esc'"
+             LEFT JOIN checkout ch ON ch.`order` = p.used_order
+             WHERE p.shop_id='$shop_id_h_esc'
+                OR (p.shop_id IS NULL AND ch.shop_id='$shop_id_h_esc')"
         ));
         $kirim_fmt = number_format((int)$stats['jami_kirim'], 0, '.', ' ');
         $chiqim_fmt = number_format((int)$stats['jami_chiqim'], 0, '.', ' ');
