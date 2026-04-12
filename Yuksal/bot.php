@@ -516,18 +516,21 @@ if(mb_stripos($data,"kassa_history=")!==false){
     $offset = ($page-1)*$per_page;
     $shop_id_h_esc = mysqli_real_escape_string($connect, $shop_id_h);
     
-    // Jami yozuvlar soni - faqat shu kassaga tegishli
+    // Jami yozuvlar soni - checkout orqali faqat shu kassaga tegishli
     $total_r = mysqli_fetch_assoc(mysqli_query($connect,
-        "SELECT COUNT(*) as c FROM payments WHERE shop_id='$shop_id_h_esc'"
+        "SELECT COUNT(*) as c FROM payments p
+          INNER JOIN checkout ch ON ch.`order` = p.used_order
+          WHERE ch.shop_id='$shop_id_h_esc'"
     ));
     $total = (int)($total_r['c']??0);
     $total_pages = max(1, ceil($total/$per_page));
     
-    // Kirim + chiqim - faqat shu kassa uchun
+    // Kirim + chiqim - faqat shu kassa uchun (checkout orqali bog'langan)
     $res = mysqli_query($connect,
         "SELECT p.amount, p.date, p.card_type, p.merchant, p.status, p.used_order
          FROM payments p
-         WHERE p.shop_id='$shop_id_h_esc'
+         INNER JOIN checkout ch ON ch.`order` = p.used_order
+         WHERE ch.shop_id='$shop_id_h_esc'
          ORDER BY p.created_at DESC, p.id DESC
          LIMIT $per_page OFFSET $offset"
     );
@@ -562,10 +565,11 @@ if(mb_stripos($data,"kassa_history=")!==false){
         // Jami statistika - faqat shu kassa uchun
         $stats = mysqli_fetch_assoc(mysqli_query($connect,
             "SELECT
-               COALESCE(SUM(CASE WHEN card_type='credit' THEN amount ELSE 0 END),0) as jami_kirim,
-               COALESCE(SUM(CASE WHEN card_type='debit' THEN amount ELSE 0 END),0) as jami_chiqim
-             FROM payments
-             WHERE shop_id='$shop_id_h_esc'"
+               COALESCE(SUM(CASE WHEN p.card_type='credit' THEN p.amount ELSE 0 END),0) as jami_kirim,
+               COALESCE(SUM(CASE WHEN p.card_type='debit' THEN p.amount ELSE 0 END),0) as jami_chiqim
+             FROM payments p
+             INNER JOIN checkout ch ON ch.`order` = p.used_order
+             WHERE ch.shop_id='$shop_id_h_esc'"
         ));
         $kirim_fmt = number_format((int)$stats['jami_kirim'], 0, '.', ' ');
         $chiqim_fmt = number_format((int)$stats['jami_chiqim'], 0, '.', ' ');
