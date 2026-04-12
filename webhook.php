@@ -71,7 +71,7 @@ function sendWebhookAsync($url, $payload_arr) {
 // Tasdiqlash linkni topish — raw HTML dan qidirish (strip_tags qilmasdan)
 $confirm_url = '';
 $search_in = $plain . " " . $html;
-preg_match_all('/https?:\/\/[^\s"'<>]+/', $search_in, $lm);
+preg_match_all('/https?:\/\/[^\s"\'<>]+/', $search_in, $lm);
 foreach ($lm[0] as $l) {
     if (stripos($l,'verify')!==false || stripos($l,'confirm')!==false ||
         stripos($l,'activate')!==false || stripos($l,'token')!==false ||
