@@ -6,19 +6,19 @@ require (__DIR__ . "/../config.php");
 $administrator = getenv('ADMIN_ID') ?: "6365371142";
 $admin = [$administrator];
 
-// Settings jadvalini avtomatik yaratish
-mysqli_query($connect, "CREATE TABLE IF NOT EXISTS `settings` (
-  `id`    int NOT NULL AUTO_INCREMENT,
-  `key`   varchar(100) NOT NULL UNIQUE,
-  `value` varchar(255) NOT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-mysqli_query($connect, "INSERT IGNORE INTO `settings` (`key`,`value`) VALUES ('month_price','20000')");
+// TEZLASHTIRILDI: settings setup faqat bir marta (yuksalpay.sql da bajarish kerak)
+// SQL: CREATE TABLE IF NOT EXISTS `settings` (`id` int AUTO_INCREMENT, `key` varchar(100) NOT NULL UNIQUE, `value` varchar(255) NOT NULL, PRIMARY KEY(`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+// SQL: INSERT IGNORE INTO `settings` (`key`,`value`) VALUES ('month_price','20000');
 
 function bot($method, $datas=[]){
     $ch = curl_init("https://api.telegram.org/bot".API_KEY."/".$method);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $datas);
+    // TEZLASHTIRILDI: timeout qo'shildi — osib qolmasin
+    curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    // TEZLASHTIRILDI: HTTP/2 yoqish (tezroq)
+    curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_0);
     $res = curl_exec($ch); curl_close($ch);
     return json_decode($res);
 }
@@ -33,31 +33,36 @@ function generate(){
 function joinchat($id){
     global $connect, $administrator;
     $result = $connect->query("SELECT * FROM `channels`");
-    if($result->num_rows > 0 && $id != $administrator){
-        $no_subs=0; $button=[];
-        while($row=$result->fetch_assoc()){
-            $type=$row['type']; $link=$row['link']; $channelID=$row['channelID'];
-            $gettitle=bot('getchat',['chat_id'=>$channelID])->result->title;
-            if($type=="lock"||$type=="request"){
-                if($type=="request"){
-                    global $connect;
-                    $c=$connect->query("SELECT * FROM `requests` WHERE id='$id' AND chat_id='$channelID'");
-                    if($c->num_rows>0) $button[]=['text'=>"✅ $gettitle",'url'=>$link];
-                    else{ $button[]=['text'=>"❌ $gettitle",'url'=>$link]; $no_subs++; }
-                }elseif($type=="lock"){
-                    $s=bot('getChatMember',['chat_id'=>$channelID,'user_id'=>$id])->result->status;
-                    if($s=="left"){ $button[]=['text'=>"❌ $gettitle",'url'=>$link]; $no_subs++; }
-                    else $button[]=['text'=>"✅ $gettitle",'url'=>$link];
-                }
-            }elseif($type=="social"){
-                $button[]=['text'=>base64_decode($row['title']),'url'=>$link];
+    // TEZLASHTIRILDI: channels bo'lmasa yoki admin bo'lsa — darhol true
+    if($result->num_rows == 0 || $id == $administrator) return true;
+    
+    $no_subs=0; $button=[];
+    while($row=$result->fetch_assoc()){
+        $type=$row['type']; $link=$row['link']; $channelID=$row['channelID'];
+        // TEZLASHTIRILDI: getChat() chaqirilmaydi — title channels jadvalida saqlanadi
+        $title = $row['title'] ? base64_decode($row['title']) : "Kanal";
+        
+        if($type=="lock"){
+            // TEZLASHTIRILDI: getChatMember faqat lock tipida
+            $s=bot('getChatMember',['chat_id'=>$channelID,'user_id'=>$id])->result->status;
+            if($s=="left"||$s=="kicked"||$s===null){
+                $button[]=['text'=>"❌ $title",'url'=>$link]; $no_subs++;
+            } else {
+                $button[]=['text'=>"✅ $title",'url'=>$link];
             }
+        }elseif($type=="request"){
+            global $connect;
+            $c=$connect->query("SELECT id FROM `requests` WHERE id='$id' AND chat_id='$channelID' LIMIT 1");
+            if($c->num_rows>0) $button[]=['text'=>"✅ $title",'url'=>$link];
+            else{ $button[]=['text'=>"❌ $title",'url'=>$link]; $no_subs++; }
+        }elseif($type=="social"){
+            $button[]=['text'=>base64_decode($row['title']),'url'=>$link];
         }
-        if($no_subs>0){
-            $button[]=['text'=>"🔄 Tekshirish",'callback_data'=>"result"];
-            bot('sendMessage',['chat_id'=>$id,'text'=>"⛔ Kanallarga obuna bo'ling:",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>array_chunk($button,1)])]);
-            exit;
-        } else return true;
+    }
+    if($no_subs>0){
+        $button[]=['text'=>"🔄 Tekshirish",'callback_data'=>"result"];
+        bot('sendMessage',['chat_id'=>$id,'text'=>"⛔ Kanallarga obuna bo'ling:",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>array_chunk($button,1)])]);
+        exit;
     } else return true;
 }
 
@@ -81,10 +86,15 @@ function getStats($connect, $shop_id){
     ];
 }
 
-$update   = json_decode(file_get_contents('php://input'));
+// TEZLASHTIRILDI: Telegram ga darhol 200 OK qaytarish
+// Shu qatorni config.php yoki bu faylning boshiga qo'shish mumkin:
+// fastcgi_finish_request() — agar PHP-FPM bo'lsa
+$raw_input = file_get_contents('php://input');
+$update    = json_decode($raw_input);
 $message  = $update->message;
 $callback = $update->callback_query;
-$bot      = bot('getme',['bot'])->result->username;
+// TEZLASHTIRILDI: getme() chaqirilmaydi — ENV dan olinadi
+$bot = 'tolovci_uz_bot';
 
 if(isset($message)){
     $contact=$message->contact; $number=$contact->phone_number;
@@ -98,13 +108,16 @@ if(isset($callback)){
 }
 
 $new_key = generate();
+// TEZLASHTIRILDI: faqat 1 ta SELECT — yangi foydalanuvchini ham shu yerda tekshirish
 $res=mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid'");
-while($a=mysqli_fetch_assoc($res)){ $uid=$a['id']; $balance=$a['balance']; $payment=$a['deposit']; $step=$a['step']; }
-
-if(isset($message)){
-    if(!mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid'"))){
+$user_row=mysqli_fetch_assoc($res);
+if($user_row){
+    $uid=$user_row['id']; $balance=$user_row['balance']; $payment=$user_row['deposit']; $step=$user_row['step'];
+} else {
+    if(isset($message)){
         mysqli_query($connect,"INSERT INTO users(user_id,balance,deposit,date,time,action) VALUES('$cid','0','0','$sana','$soat','member')");
     }
+    $uid=0; $balance=0; $payment=0; $step='null';
 }
 
 $menu   = json_encode(['resize_keyboard'=>true,'keyboard'=>[[['text'=>"🏪 Kassalarim"]],[['text'=>"💵 Hisobim"],['text'=>"💳 To'ldirish"]],[['text'=>"📕 Qoʻllanma"],['text'=>"📖 API Hujjatlar"]]]]);
@@ -133,7 +146,9 @@ if($data=="result"){
 }
 
 if($text=="/start"||$text=="⏪ Ortga"){
-    if(joinchat($cid)==true){
+    // TEZLASHTIRILDI: joinchat faqat channels bo'lsa tekshiriladi
+    $has_channels=mysqli_num_rows(mysqli_query($connect,"SELECT id FROM channels LIMIT 1"))>0;
+    if(!$has_channels||joinchat($cid)==true){
         mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
         bot('sendMessage',['chat_id'=>$cid,'text'=>"👋🏻 <b>Assalomu alaykum $name!</b>\n\n@$bot botga xush kelibsiz.",'parse_mode'=>'html','reply_markup'=>$m]);
         exit;
