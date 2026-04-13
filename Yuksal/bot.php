@@ -195,28 +195,15 @@ if($step=="uzcard_auto"){
         exit;
     }
 
-    // === Random offset: 50-150 so'm qo'shish (unique miqdor) ===
-    $offset = rand(50, 150);
-    $amount = $amount_original + $offset;
+    // === Miqdor o'zgartirilmaydi — aynan kiritilganicha ===
+    $amount = $amount_original;
 
-    // Shu aniq miqdor band emasligini tekshir
-    $try = 0;
-    while($try < 10){
-        $busy = mysqli_fetch_assoc(mysqli_query($connect,
-            "SELECT id FROM checkout WHERE amount='$amount' AND shop_id='127000' AND status='pending' AND date > '$expire_time'"
-        ));
-        if(!$busy) break;
-        $offset = rand(50, 150);
-        $amount = $amount_original + $offset;
-        $try++;
-    }
-
-    // === Kassaning karta va bank ma'lumotlari ===
+    // Kassaning karta va bank ma'lumotlari
     $main_shop = mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='127000'"));
     $card_raw  = ($main_shop && !empty($main_shop['card_number'])) ? preg_replace('/\s+/','',$main_shop['card_number']) : '5614683582279246';
     $card_show = chunk_split($card_raw,4,' ');
 
-    // === checkout jadvaliga order yaratish ===
+    // checkout jadvaliga order yaratish
     $order = generate();
     $today = date("Y-m-d H:i:s");
     mysqli_query($connect,
@@ -226,7 +213,7 @@ if($step=="uzcard_auto"){
 
     $pay_url = "https://$sub_domen/pay?order=$order&shop_id=127000";
 
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"➡️ <b>To'lov kartasi:</b> <code>$card_show</code>\n\n💵 Siz so'ragan: <b>".number_format($amount_original,0,'.',' ')."</b> so'm\n💰 To'lash kerak: <code>$amount</code> so'm\n⏰ Kutish vaqti: <b>5</b> daqiqa\n✅ To'lov avtomatik qabul qilinadi\n\n👉🏻 Aynan <b>$amount</b> so'm yuboring!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"➡️ <b>To'lov kartasi:</b> <code>$card_show</code>\n\n💵 To'lash kerak: <code>$amount</code> so'm\n⏰ Kutish vaqti: <b>5</b> daqiqa\n✅ To'lov avtomatik qabul qilinadi\n\n👉🏻 Aynan <b>$amount</b> so'm yuboring!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
         [['text'=>"💵 $amount so'm — nusxalash",'copy_text'=>['text'=>$amount]]],
         [['text'=>'💳 Kartani nusxalash','copy_text'=>['text'=>$card_raw]]],
         [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"chk=$amount=$order"]],
@@ -236,7 +223,6 @@ if($step=="uzcard_auto"){
     mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid'");
     exit;
 }
-
 // === TO'LOVNI TEKSHIRISH ===
 if(mb_stripos($data,"chk=")!==false){
     bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"🔄 Tekshirilmoqda..."]);
