@@ -1,6 +1,6 @@
 <?php
 
-$sub_domen = "tolovavto-production.up.railway.app";
+$sub_domen = "tolovavto.up.railway.app";
 require (__DIR__ . "/../config.php");
 
 $administrator = getenv('ADMIN_ID') ?: "6365371142";
@@ -12,11 +12,16 @@ $soat = date('H:i:s');
 
 function bot($method, $datas=[]){
     $ch = curl_init("https://api.telegram.org/bot".API_KEY."/".$method);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $datas);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 8);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-    curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_0);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER    => true,
+        CURLOPT_POSTFIELDS        => $datas,
+        CURLOPT_TIMEOUT           => 5,
+        CURLOPT_CONNECTTIMEOUT    => 2,
+        CURLOPT_HTTP_VERSION      => CURL_HTTP_VERSION_2_0,
+        CURLOPT_TCP_NODELAY       => true,
+        CURLOPT_NOSIGNAL          => 1,
+        CURLOPT_DNS_CACHE_TIMEOUT => 300,
+    ]);
     $res = curl_exec($ch); curl_close($ch);
     return json_decode($res);
 }
@@ -365,7 +370,7 @@ if(!empty($data) && mb_stripos($data,"cancel_order=")!==false){
 // API HUJJATLAR
 // ============================================================
 if(!empty($text) && $text=="📖 API Hujjatlar"){
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>📖 API Hujjatlar:</b>\nhttps://tolovchiuz.vercel.app",'disable_web_page_preview'=>true,'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"📁 API Docs",'url'=>"https://tolovchiuz.vercel.app/api.html"]]]])]);
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"<b>📖 API Hujjatlar:</b>\nhttps://tolovavto.up.railway.app/docs",'disable_web_page_preview'=>true,'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"📁 API Docs",'url'=>"https://tolovavto.up.railway.app/docs"]]]])]);
     exit;
 }
 
@@ -828,7 +833,7 @@ if($step=="add_kassa" && !empty($text)){
         if(mysqli_num_rows(mysqli_query($connect,"SELECT * FROM shops WHERE shop_name='".base64_encode($text)."'"))>0){
             bot('sendMessage',['chat_id'=>$cid,'text'=>"⚠️ Bu nom bilan kassa mavjud!",'parse_mode'=>'html']); exit;
         }
-        bot('sendmessage',['chat_id'=>$cid,'text'=>"✅ Nom qabul qilindi!\n\nKassa havolasini kiriting:\n<i>Masalan: @username yoki tolovchi.uz</i>",'parse_mode'=>'html','reply_markup'=>$back]);
+        bot('sendmessage',['chat_id'=>$cid,'text'=>"✅ Nom qabul qilindi!\n\nKassa havolasini kiriting:\n<i>Masalan: @username yoki tolovavto.up.railway.app</i>",'parse_mode'=>'html','reply_markup'=>$back]);
         mysqli_query($connect,"UPDATE users SET step='add_kassa_address-".base64_encode($text)."' WHERE user_id='$cid_esc'");
         exit;
     }
