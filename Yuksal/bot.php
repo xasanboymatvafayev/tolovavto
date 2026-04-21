@@ -415,6 +415,7 @@ if(!empty($data) && mb_stripos($data,"kassa_set=")!==false){
 
     if($status=="waiting"){
         $icon = "🔄 Kutilmoqda...";
+        $kb['inline_keyboard'][]=[['text'=>"🗑️ Kassani o'chirish",'callback_data'=>"delete_kassa_ask=$id"]];
         $kb['inline_keyboard'][]=[['text'=>"⏪ Ortga",'callback_data'=>"Kassalarim"]];
     } elseif($status=="confirm"){
         $created = strtotime($rew['date'] ?? 'now');
@@ -444,9 +445,11 @@ if(!empty($data) && mb_stripos($data,"kassa_set=")!==false){
             $kb['inline_keyboard'][]=[['text'=>"⏩ Muddatni uzaytirish",'callback_data'=>"kassa_payment=$shop_id=$id"]];
             $kb['inline_keyboard'][]=[['text'=>"⚙️ Sozlamalar",'callback_data'=>"kassa_sozlama=$shop_id=$id"]];
         }
+        $kb['inline_keyboard'][]=[['text'=>"🗑️ Kassani o'chirish",'callback_data'=>"delete_kassa_ask=$id"]];
         $kb['inline_keyboard'][]=[['text'=>"⏪ Ortga",'callback_data'=>"Kassalarim"]];
     } elseif($status=="canceled"){
         $icon = "⛔ Bekor qilingan!";
+        $kb['inline_keyboard'][]=[['text'=>"🗑️ Kassani o'chirish",'callback_data'=>"delete_kassa_ask=$id"]];
         $kb['inline_keyboard'][]=[['text'=>"⏪ Ortga",'callback_data'=>"Kassalarim"]];
     }
 
@@ -654,7 +657,8 @@ if(!empty($data) && mb_stripos($data,"kassa_payment=")!==false){
             'parse_mode'=>'html',
             'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"⏪ Ortga",'callback_data'=>"kassa_set=$set_id_p"]]]])]);
     } else {
-        bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"⚠ Hisobda yetarli mablagʻ yoʻq. Kerak: 20,000 soʻm",'show_alert'=>true]);
+        $need_fmt = number_format($req, 0, '.', ' ');
+        bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"⚠ Hisobda yetarli mablagʻ yoʻq. Kerak: $need_fmt soʻm",'show_alert'=>true]);
     }
     exit;
 }
@@ -1012,13 +1016,16 @@ if(!empty($data) && $data=="cancel_broadcast" && in_array($cid,$admin)){
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"✅ <b>Yuborish bekor qilindi!</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[]])]);
     exit;
 }
-if($step=="send" && in_array($cid,$admin) && !empty($text)){
+if($step=="send" && in_array($cid,$admin) && isset($message)){
     $lu  = mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM users ORDER BY id DESC LIMIT 1"));
     $t1  = date('H:i',strtotime('+1 minutes'));
     $t2  = date('H:i',strtotime('+2 minutes'));
-    $rm  = base64_encode(json_encode($update->message->reply_markup ?? null));
+    $rm  = base64_encode(json_encode($message->reply_markup ?? null));
+    $fwd_from_chat = $message->forward_from_chat->id ?? null;
+    $fwd_msg_id    = $message->forward_from_message_id ?? null;
+    $use_forward   = ($fwd_from_chat && $fwd_msg_id) ? 1 : 0;
     mysqli_query($connect,"INSERT INTO `send` (time1,time2,start_id,stop_id,admin_id,message_id,reply_markup,step) VALUES('$t1','$t2','0','".$lu['user_id']."','$administrator','$mid','$rm','send')");
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>$t1 da yuboriladi!</b>",'parse_mode'=>'html','reply_markup'=>$panel]);
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>$t1 da yuboriladi!</b>\n\n👥 Jami foydalanuvchilar: <b>".$lu['id']."</b> ta",'parse_mode'=>'html','reply_markup'=>$panel]);
     mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid_esc'");
     exit;
 }
@@ -1258,6 +1265,38 @@ if(!empty($data) && mb_stripos($data,"admin_unban=")!==false && in_array($cid,$a
     bot('sendMessage',['chat_id'=>$owner_id,
         'text'=>"✅ <b>Kassangiz qayta faollashdi!</b>\n\n🏪 <b>$nomi</b>",
         'parse_mode'=>'html']);
+    exit;
+}
+
+// ============================================================
+// KASSA O'CHIRISH (foydalanuvchi)
+// ============================================================
+if(!empty($data) && mb_stripos($data,"delete_kassa_ask=")!==false){
+    $set_id = explode("=",$data)[1];
+    $shop_r = mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE id='$set_id' AND user_id='$cid_esc'"));
+    if(!$shop_r){ bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"❌ Kassa topilmadi!",'show_alert'=>true]); exit; }
+    $nomi = base64_decode($shop_r['shop_name']);
+    bot('editMessageReplyMarkup',['chat_id'=>$cid,'message_id'=>$mid,
+        'reply_markup'=>json_encode(['inline_keyboard'=>[
+            [['text'=>"⚠️ Haqiqatan ham \"$nomi\" kassasini o'chirmoqchimisiz?",'callback_data'=>"noop"]],
+            [['text'=>"✅ Ha, o'chirish",'callback_data'=>"delete_kassa_yes=$set_id"],['text'=>"❌ Yo'q",'callback_data'=>"kassa_set=$set_id"]],
+        ]])]);
+    exit;
+}
+if(!empty($data) && mb_stripos($data,"delete_kassa_yes=")!==false){
+    $set_id = explode("=",$data)[1];
+    $shop_r = mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE id='$set_id' AND user_id='$cid_esc'"));
+    if(!$shop_r){ bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"❌ Kassa topilmadi!",'show_alert'=>true]); exit; }
+    $nomi    = base64_decode($shop_r['shop_name']);
+    $shop_id_del = $shop_r['shop_id'];
+    mysqli_query($connect,"DELETE FROM shops WHERE id='$set_id' AND user_id='$cid_esc'");
+    mysqli_query($connect,"UPDATE checkout SET status='canceled' WHERE shop_id='$shop_id_del' AND status='pending'");
+    bot('answerCallbackQuery',['callback_query_id'=>$qid,'text'=>"✅ Kassa o'chirildi"]);
+    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
+        'text'=>"🗑️ <b>\"$nomi\" kassasi o'chirildi!</b>",
+        'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
+            [['text'=>"⏪ Kassalarimga qaytish",'callback_data'=>"Kassalarim"]],
+        ]])]);
     exit;
 }
 
