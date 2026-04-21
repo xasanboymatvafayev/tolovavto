@@ -2,9 +2,11 @@
 require_once __DIR__ . '/config.php';
 header("Content-Type: application/json");
 
-// Eng yuqoriga, require dan keyin
-$raw_log = file_get_contents('php://input');
-file_put_contents(__DIR__ . '/log.txt', date('Y-m-d H:i:s') . "\n" . $raw_log . "\n\n===\n\n", FILE_APPEND);
+// Bir marta o'qiymiz
+$raw = file_get_contents('php://input');
+
+// LOG
+file_put_contents(__DIR__ . '/log.txt', date('Y-m-d H:i:s') . "\n" . $raw . "\n\n===\n\n", FILE_APPEND);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -12,7 +14,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$raw = file_get_contents('php://input');
 $data = json_decode($raw, true);
 if (!$data) {
     http_response_code(400);
@@ -27,17 +28,11 @@ $subject    = $data['headers']['subject'] ?? '';
 $from       = $data['envelope']['from'] ?? '';
 $message_id = $data['headers']['message-id'] ?? uniqid();
 
-// Debug log
-file_put_contents(__DIR__ . "/debug_email.txt",
-    "=== " . date('Y-m-d H:i:s') . " ===\nFROM: $from\nSUBJECT: $subject\nBODY:\n$body\n\n",
-    FILE_APPEND
-);
-
 $bot_token = getenv('TELEGRAM_BOT_TOKEN');
 $admin_id  = getenv('ADMIN_ID') ?: "6365371142";
 
 // ==================================================
-// ASYNC (fire-and-forget) curl — javobni kutmaydi
+// ASYNC curl
 // ==================================================
 function sendTelegramAsync($text, $bot_token, $chat_id) {
     $ch = curl_init("https://api.telegram.org/bot$bot_token/sendMessage");
@@ -72,7 +67,7 @@ function sendWebhookAsync($url, $payload_arr) {
     curl_close($ch);
 }
 
-// Tasdiqlash linkni topish — raw HTML dan qidirish (strip_tags qilmasdan)
+// Tasdiqlash linkni topish
 $confirm_url = '';
 $search_in = $plain . " " . $html;
 preg_match_all('/https?:\/\/[^\s"\'<>]+/', $search_in, $lm);
@@ -87,17 +82,18 @@ foreach ($lm[0] as $l) {
 }
 
 // ============================================
-// UZCARD EMAIL PARSE
+// SUMMA VA BALANS — kuchaytrilgan regex
 // ============================================
+$body_normalized = preg_replace('/(\d)\s(\d{3})(?=\s*UZS|\s*\d)/', '$1$2', $body);
 
-if (!preg_match('/summa:([\d]+(?:[.,]\d+)?)\s*UZS\s+balans:([\d]+(?:[.,]\d+)?)\s*UZS/i', $body, $sm)) {
+if (!preg_match('/summa\s*:\s*([\d\s]+(?:[.,]\d+)?)\s*UZS.*?balans\s*:\s*([\d\s]+(?:[.,]\d+)?)\s*UZS/is', $body_normalized, $sm)) {
     http_response_code(200);
     echo json_encode(['status' => 'skip', 'reason' => 'no payment found']);
     exit;
 }
 
-$amount  = (int)round((float)str_replace(',', '.', $sm[1]));
-$balance = (int)round((float)str_replace(',', '.', $sm[2]));
+$amount  = (int)round((float)str_replace([',', ' '], ['.', ''], $sm[1]));
+$balance = (int)round((float)str_replace([',', ' '], ['.', ''], $sm[2]));
 
 if ($amount <= 0) {
     http_response_code(200);
@@ -105,39 +101,79 @@ if ($amount <= 0) {
     exit;
 }
 
+// Karta oxirgi 4 raqam
 $card_last = '****';
 if (preg_match('/karta\s+\*+(\d{4})/i', $body, $cm)) {
     $card_last = $cm[1];
 }
 
+// Sana
 $op_date = date('d.m.Y H:i');
 if (preg_match('/(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})/i', $body, $dm)) {
     $date_parts = explode('.', $dm[1]);
     $op_date = $date_parts[0] . '.' . $date_parts[1] . '.20' . $date_parts[2] . ' ' . $dm[2];
 }
 
+// ============================================
+// TIP ANIQLASH — avval kirim, keyin chiqim
+// ============================================
+$search_type = $subject . ' ' . $body;
+
 $type      = 'debit';
 $type_text = "🔴 Chiqim (To'lov)";
 $sign      = "➖";
-$merchant  = "Noma'lum";
 
-if      (preg_match('/Platezh:/i', $body))              { $type='debit';  $type_text="🔴 Chiqim (To'lov)";             $sign="➖"; }
-elseif  (preg_match('/Perevod\s+na\s+kartu:/i', $body)) { $type='credit'; $type_text="🟢 Kirim (O'tkazma olindi)";     $sign="➕"; }
-elseif  (preg_match('/POPOLN\s+SCHETA/i', $body))       { $type='credit'; $type_text="🟢 Kirim (Hisob to'ldirildi)";  $sign="➕"; }
-elseif  (preg_match('/SPISANIE/i', $body))               { $type='debit';  $type_text="🔴 Chiqim (Hisobdan chiqarish)"; $sign="➖"; }
-elseif  (preg_match('/ZACHISLENIE/i', $body))            { $type='credit'; $type_text="🟢 Kirim (Hisobga tushirildi)"; $sign="➕"; }
-
-if (preg_match('/(?:Platezh|Perevod na kartu|Perevod):\s*([^,]+(?:,[^,]+)?),\s*(?:UZ|KZ|RU)/i', $body, $mm)) {
-    $raw_merchant = trim($mm[1]);
-    $raw_merchant = preg_replace('/\s*UZCARD\s*POPOLN\s*SCHETA/i', '', $raw_merchant);
-    $raw_merchant = preg_replace('/\s*SCHET\s*TO\s*UZCARD/i', '', $raw_merchant);
-    $merchant = trim($raw_merchant) ?: 'OPENBANK';
-}
-if ($merchant == "Noma'lum" && preg_match('/POPOLN\s+SCHETA/i', $body)) {
-    $merchant = "UzCard hisobni to'ldirish";
+if (preg_match('/ZACHISLENIE|POPOLN\s+SCHETA|Perevod\s+na\s+kartu|zachisleno|postuplenie/i', $search_type)) {
+    $type      = 'credit';
+    $type_text = "🟢 Kirim";
+    $sign      = "➕";
+    if (preg_match('/Perevod\s+na\s+kartu/i', $search_type))  $type_text = "🟢 Kirim (P2P o'tkazma)";
+    elseif (preg_match('/POPOLN\s+SCHETA/i', $search_type))   $type_text = "🟢 Kirim (Hisob to'ldirildi)";
+    elseif (preg_match('/ZACHISLENIE/i', $search_type))        $type_text = "🟢 Kirim (Hisobga tushirildi)";
+} elseif (preg_match('/Platezh|SPISANIE|oplata|purchase/i', $search_type)) {
+    $type      = 'debit';
+    if (preg_match('/Platezh/i', $search_type))    $type_text = "🔴 Chiqim (To'lov)";
+    elseif (preg_match('/SPISANIE/i', $search_type)) $type_text = "🔴 Chiqim (Hisobdan chiqarish)";
 }
 
-// Duplicate tekshiruv
+// ============================================
+// MERCHANT ANIQLASH — 5 bosqichli
+// ============================================
+$merchant = '';
+
+// 1. Platezh / Perevod formatidan
+if (preg_match('/(?:Platezh|Perevod(?:\s+na\s+kartu)?)\s*:\s*([^,\n]+?)(?:\s*,\s*(?:UZ|KZ|RU|US|GB))?(?:\s+summa|\s*$)/i', $body, $mm)) {
+    $merchant = trim($mm[1]);
+}
+
+// 2. ZACHISLENIE / POPOLN keyin kelgan nom
+if (empty($merchant)) {
+    if (preg_match('/(?:ZACHISLENIE|POPOLN\s+SCHETA)\s+([A-Z][A-Z0-9\s]{2,30}?)(?:\s+summa|\s*,|\s*$)/i', $body, $mm)) {
+        $merchant = trim($mm[1]);
+    }
+}
+
+// 3. P2P holida kimdan
+if ($type === 'credit' && preg_match('/Perevod\s+na\s+kartu\s*:\s*([^,\n]+)/i', $body, $mm)) {
+    $merchant = "P2P: " . trim($mm[1]);
+}
+
+// 4. Tozalash
+$merchant = preg_replace('/\s*UZCARD\s*(POPOLN\s*SCHETA|ONLINE)?\s*/i', '', $merchant);
+$merchant = preg_replace('/\s*SCHET\s*TO\s*UZCARD\s*/i', '', $merchant);
+$merchant = preg_replace('/\s*ONLINE\s*TRANSFER\s*/i', '', $merchant);
+$merchant = trim($merchant);
+
+// 5. Fallback
+if (empty($merchant)) {
+    if (preg_match('/POPOLN\s+SCHETA/i', $body))   $merchant = "UzCard hisob to'ldirish";
+    elseif ($type === 'credit')                     $merchant = "Noma'lum (kirim)";
+    else                                            $merchant = "Noma'lum (chiqim)";
+}
+
+// ============================================
+// DUPLICATE TEKSHIRUV
+// ============================================
 $mid_esc = mysqli_real_escape_string($connect, $message_id);
 $check = mysqli_query($connect, "SELECT id FROM payments WHERE message_id='$mid_esc'");
 if (mysqli_num_rows($check) > 0) {
@@ -152,13 +188,9 @@ if (mysqli_num_rows($col_shop) == 0) {
     mysqli_query($connect, "ALTER TABLE payments ADD COLUMN shop_id varchar(50) DEFAULT NULL");
 }
 
-// Karta oxirgi 4 raqami orqali qaysi kassanikini aniqlash
+// Karta oxirgi 4 raqami orqali kassani aniqlash
 $payment_shop_id = null;
 if ($card_last !== '****') {
-    $shop_by_card = mysqli_fetch_assoc(mysqli_query($connect,
-        "SELECT shop_id, card_number FROM shops WHERE card_number IS NOT NULL AND card_number != ''"
-    ));
-    // Barcha kassalarni tekshirish
     $all_shops = mysqli_query($connect,
         "SELECT shop_id, card_number FROM shops WHERE card_number IS NOT NULL AND card_number != ''"
     );
@@ -192,7 +224,7 @@ if ($ins) {
     $bal_fmt = number_format($balance, 0, '.', ' ');
 
     // ============================================
-    // KIRIM bo'lsa — checkout bilan bog'lash + BALANS QO'SHISH
+    // KIRIM — checkout bilan bog'lash + BALANS
     // ============================================
     if ($type === 'credit') {
         $expire_time = date('Y-m-d H:i:s', strtotime('-5 minutes'));
@@ -204,13 +236,12 @@ if ($ins) {
         );
 
         if ($checkout_res && mysqli_num_rows($checkout_res) > 0) {
-            $crow         = mysqli_fetch_assoc($checkout_res);
-            $checkout_id  = $crow['id'];
-            $ch_order     = $crow['order'];
-            $ch_shop      = $crow['shop_id'];
-            $ch_user      = $crow['user_id'] ?? null;
+            $crow        = mysqli_fetch_assoc($checkout_res);
+            $checkout_id = $crow['id'];
+            $ch_order    = $crow['order'];
+            $ch_shop     = $crow['shop_id'];
+            $ch_user     = $crow['user_id'] ?? null;
 
-            // FIX: paid_to_user ustuni mavjudligini tekshir
             $col_check = mysqli_query($connect, "SHOW COLUMNS FROM checkout LIKE 'paid_to_user'");
             if (mysqli_num_rows($col_check) > 0) {
                 mysqli_query($connect, "UPDATE checkout SET status='paid', paid_to_user='1' WHERE id='$checkout_id'");
@@ -218,18 +249,15 @@ if ($ins) {
                 mysqli_query($connect, "UPDATE checkout SET status='paid' WHERE id='$checkout_id'");
             }
 
-            // Payment ni used qilish + shop_id ni ham saqlash
             mysqli_query($connect,
                 "UPDATE payments SET status='used', used_order='" . mysqli_real_escape_string($connect, $ch_order) . "', shop_id='" . mysqli_real_escape_string($connect, $ch_shop) . "' WHERE id='$new_payment_id'"
             );
 
-            // === BALANS QO'SHISH (FIX: har doim user_id bo'lsa qo'shish) ===
             if (!empty($ch_user)) {
                 $user_esc = mysqli_real_escape_string($connect, $ch_user);
                 $upd = mysqli_query($connect,
                     "UPDATE users SET balance=balance+$amount, deposit=deposit+$amount WHERE user_id='$user_esc'"
                 );
-                // Foydalanuvchiga xabar (async, kutmaydi)
                 if ($upd && mysqli_affected_rows($connect) > 0) {
                     $bot_local = getenv('TELEGRAM_BOT_TOKEN');
                     if ($bot_local) {
@@ -242,12 +270,11 @@ if ($ins) {
                 }
             }
 
-            // Do'kon balansini oshirish
             $shop_esc = mysqli_real_escape_string($connect, $ch_shop);
             mysqli_query($connect,
                 "UPDATE shops SET shop_balance=shop_balance+$amount WHERE shop_id='$shop_esc'"
             );
-            // Do'kon ma'lumotlari (webhook_url + user_id — egasi Telegram ID)
+
             $shops_row = mysqli_fetch_assoc(mysqli_query($connect,
                 "SELECT webhook_url, user_id, shop_name FROM shops WHERE shop_id='$shop_esc'"
             ));
@@ -260,7 +287,6 @@ if ($ins) {
                 $amt_fmt_s      = number_format($amount, 0, '.', ' ');
                 $bot_local      = getenv('TELEGRAM_BOT_TOKEN');
 
-                // 1. Do'kon webhook URL ga (agar kiritilgan bo'lsa) — async
                 if (!empty($shop_wh_url)) {
                     sendWebhookAsync($shop_wh_url, [
                         'status'      => 'paid',
@@ -272,8 +298,6 @@ if ($ins) {
                     ]);
                 }
 
-                // 2. Do'kon egasiga Telegram xabar — to'g'ridan-to'g'ri, bot orqali emas
-                // (faqat agar u bot foydalanuvchisi emas, ya'ni ch_user bilan farq qilsa)
                 if (!empty($shop_owner_id) && $shop_owner_id !== $ch_user && $bot_local) {
                     $owner_msg  = "💰 <b>Yangi to'lov!</b>\n";
                     $owner_msg .= "🏪 Kassa: <b>" . htmlspecialchars($shop_name_show) . "</b>\n";
@@ -288,7 +312,7 @@ if ($ins) {
         }
     }
 
-    // Admin Telegram xabar (async)
+    // Admin xabar
     $msg  = "🔔 <b>UZCARD Bildirishnomasi</b>\n";
     $msg .= "$type_text\n";
     $msg .= "━━━━━━━━━━━━━━\n";
