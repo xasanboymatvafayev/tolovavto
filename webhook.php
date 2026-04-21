@@ -2,6 +2,10 @@
 require_once __DIR__ . '/config.php';
 header("Content-Type: application/json");
 
+// Eng yuqoriga, require dan keyin
+$raw_log = file_get_contents('php://input');
+file_put_contents(__DIR__ . '/log.txt', date('Y-m-d H:i:s') . "\n" . $raw_log . "\n\n===\n\n", FILE_APPEND);
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['status' => 'error', 'message' => 'Only POST allowed']);
