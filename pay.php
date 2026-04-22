@@ -296,8 +296,6 @@ $total_secs = 5 * 60;
     <div class="card-number"><?= htmlspecialchars($card_fmt) ?></div>
     <div class="card-info">
       <div class="card-info-item">
-        <label>Karta egasi</label>
-        <span>X.M</span>
       </div>
       <div class="card-info-item" style="text-align:right;">
         <label>Bank</label>
