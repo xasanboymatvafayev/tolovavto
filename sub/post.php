@@ -57,7 +57,7 @@ if ($method === 'create') {
         echo json_encode(['status'=>'error','message'=>'Do\'kon faol emas!']);
         exit;
     }
-    if (($rew['month_status'] ?? '') !== 'To\'landi') {
+    if (($rew['month_status'] ?? '') !== 'Toʻlandi' && ($rew['month_status'] ?? '') !== "To'landi") {
         echo json_encode(['status'=>'error','message'=>'Oylik to\'lov qilinmagan!']);
         exit;
     }
@@ -207,7 +207,7 @@ if ($shop_id && $shop_key) {
         echo json_encode(['status'=>'error','message'=>'Do\'kon faol emas!']);
         exit;
     }
-    if ($month_status !== 'To\'landi') {
+    if ($month_status !== 'Toʻlandi' && $month_status !== "To'landi") {
         echo json_encode(['status'=>'error','message'=>'Oylik to\'lov qilinmagan!']);
         exit;
     }
