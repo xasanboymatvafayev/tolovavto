@@ -35,23 +35,57 @@ function generate(){
 
 function joinchat($id){
     global $connect, $administrator;
-    $result = $connect->query("SELECT * FROM `channels`");
+    $result = $connect->query("SELECT type,link,channelID,title FROM `channels`");
     if($result->num_rows == 0 || $id == $administrator) return true;
 
-    $no_subs=0; $button=[];
+    // Parallel getChatMember so'rovlari — lock kanallar uchun
+    $lock_channels = [];
+    $all_rows = [];
     while($row=$result->fetch_assoc()){
+        $all_rows[] = $row;
+        if($row['type']=="lock") $lock_channels[] = $row['channelID'];
+    }
+
+    // Parallel cURL — barcha getChatMember bir vaqtda
+    $statuses = [];
+    if(!empty($lock_channels)){
+        $mh = curl_multi_init();
+        $handles = [];
+        foreach($lock_channels as $chId){
+            $ch = curl_init("https://api.telegram.org/bot".API_KEY."/getChatMember");
+            curl_setopt_array($ch,[
+                CURLOPT_RETURNTRANSFER=>true,
+                CURLOPT_POSTFIELDS=>['chat_id'=>$chId,'user_id'=>$id],
+                CURLOPT_TIMEOUT=>4,
+                CURLOPT_CONNECTTIMEOUT=>2,
+                CURLOPT_NOSIGNAL=>1,
+            ]);
+            curl_multi_add_handle($mh,$ch);
+            $handles[$chId]=$ch;
+        }
+        $active=null;
+        do{ curl_multi_exec($mh,$active); curl_multi_select($mh,0.5); } while($active>0);
+        foreach($handles as $chId=>$ch){
+            $res=json_decode(curl_multi_getcontent($ch));
+            $statuses[$chId]=$res->result->status ?? null;
+            curl_multi_remove_handle($mh,$ch); curl_close($ch);
+        }
+        curl_multi_close($mh);
+    }
+
+    $no_subs=0; $button=[];
+    foreach($all_rows as $row){
         $type=$row['type']; $link=$row['link']; $channelID=$row['channelID'];
         $title = $row['title'] ? base64_decode($row['title']) : "Kanal";
 
         if($type=="lock"){
-            $s=bot('getChatMember',['chat_id'=>$channelID,'user_id'=>$id])->result->status;
+            $s = $statuses[$channelID] ?? null;
             if($s=="left"||$s=="kicked"||$s===null){
                 $button[]=['text'=>"❌ $title",'url'=>$link]; $no_subs++;
             } else {
                 $button[]=['text'=>"✅ $title",'url'=>$link];
             }
         }elseif($type=="request"){
-            global $connect;
             $c=$connect->query("SELECT id FROM `requests` WHERE id='$id' AND chat_id='$channelID' LIMIT 1");
             if($c->num_rows>0) $button[]=['text'=>"✅ $title",'url'=>$link];
             else{ $button[]=['text'=>"❌ $title",'url'=>$link]; $no_subs++; }
@@ -132,7 +166,7 @@ $cid_esc = mysqli_real_escape_string($connect, $cid);
 
 $new_key = generate();
 
-$res      = mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid_esc'");
+$res      = mysqli_query($connect,"SELECT id,balance,deposit,step FROM users WHERE user_id='$cid_esc' LIMIT 1");
 $user_row = mysqli_fetch_assoc($res);
 if($user_row){
     $uid     = $user_row['id'];
