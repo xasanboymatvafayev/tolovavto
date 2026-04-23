@@ -2,11 +2,20 @@
 require_once __DIR__ . '/config.php';
 header("Content-Type: application/json");
 
-// Bir marta o'qiymiz
+// INPUT O'QISH — bir necha usul bilan
 $raw = file_get_contents('php://input');
+if (empty($raw) && !empty($_POST)) {
+    $raw = json_encode($_POST);
+}
 
-// LOG
-file_put_contents(__DIR__ . '/log.txt', date('Y-m-d H:i:s') . "\n" . $raw . "\n\n===\n\n", FILE_APPEND);
+// DETAILED LOG
+$log  = date('Y-m-d H:i:s') . "\n";
+$log .= "METHOD: " . ($_SERVER['REQUEST_METHOD'] ?? '') . "\n";
+$log .= "CONTENT_TYPE: " . ($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? 'yoq') . "\n";
+$log .= "RAW_LENGTH: " . strlen($raw) . "\n";
+$log .= "POST_KEYS: " . implode(', ', array_keys($_POST)) . "\n";
+$log .= "RAW:\n" . $raw . "\n\n===\n\n";
+file_put_contents(__DIR__ . '/log.txt', $log, FILE_APPEND);
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -17,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $data = json_decode($raw, true);
 if (!$data) {
     http_response_code(400);
-    echo json_encode(['status' => 'error', 'message' => 'Invalid JSON']);
+    echo json_encode(['status' => 'error', 'message' => 'Invalid JSON', 'raw_length' => strlen($raw)]);
     exit;
 }
 
@@ -82,7 +91,7 @@ foreach ($lm[0] as $l) {
 }
 
 // ============================================
-// SUMMA VA BALANS — kuchaytrilgan regex
+// SUMMA VA BALANS
 // ============================================
 $body_normalized = preg_replace('/(\d)\s(\d{3})(?=\s*UZS|\s*\d)/', '$1$2', $body);
 
@@ -127,12 +136,12 @@ if (preg_match('/ZACHISLENIE|POPOLN\s+SCHETA|Perevod\s+na\s+kartu|zachisleno|pos
     $type      = 'credit';
     $type_text = "🟢 Kirim";
     $sign      = "➕";
-    if (preg_match('/Perevod\s+na\s+kartu/i', $search_type))  $type_text = "🟢 Kirim (P2P o'tkazma)";
-    elseif (preg_match('/POPOLN\s+SCHETA/i', $search_type))   $type_text = "🟢 Kirim (Hisob to'ldirildi)";
-    elseif (preg_match('/ZACHISLENIE/i', $search_type))        $type_text = "🟢 Kirim (Hisobga tushirildi)";
+    if (preg_match('/Perevod\s+na\s+kartu/i', $search_type))   $type_text = "🟢 Kirim (P2P o'tkazma)";
+    elseif (preg_match('/POPOLN\s+SCHETA/i', $search_type))    $type_text = "🟢 Kirim (Hisob to'ldirildi)";
+    elseif (preg_match('/ZACHISLENIE/i', $search_type))         $type_text = "🟢 Kirim (Hisobga tushirildi)";
 } elseif (preg_match('/Platezh|SPISANIE|oplata|purchase/i', $search_type)) {
     $type      = 'debit';
-    if (preg_match('/Platezh/i', $search_type))    $type_text = "🔴 Chiqim (To'lov)";
+    if (preg_match('/Platezh/i', $search_type))      $type_text = "🔴 Chiqim (To'lov)";
     elseif (preg_match('/SPISANIE/i', $search_type)) $type_text = "🔴 Chiqim (Hisobdan chiqarish)";
 }
 
@@ -153,7 +162,7 @@ if (empty($merchant)) {
     }
 }
 
-// 3. P2P holida kimdan
+// 3. P2P holida kimdan — ustunlik beradi
 if ($type === 'credit' && preg_match('/Perevod\s+na\s+kartu\s*:\s*([^,\n]+)/i', $body, $mm)) {
     $merchant = "P2P: " . trim($mm[1]);
 }
@@ -166,9 +175,9 @@ $merchant = trim($merchant);
 
 // 5. Fallback
 if (empty($merchant)) {
-    if (preg_match('/POPOLN\s+SCHETA/i', $body))   $merchant = "UzCard hisob to'ldirish";
-    elseif ($type === 'credit')                     $merchant = "Noma'lum (kirim)";
-    else                                            $merchant = "Noma'lum (chiqim)";
+    if (preg_match('/POPOLN\s+SCHETA/i', $body))  $merchant = "UzCard hisob to'ldirish";
+    elseif ($type === 'credit')                    $merchant = "Noma'lum (kirim)";
+    else                                           $merchant = "Noma'lum (chiqim)";
 }
 
 // ============================================
