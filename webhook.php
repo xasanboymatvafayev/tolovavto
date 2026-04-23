@@ -48,19 +48,26 @@ $admin_id  = getenv('ADMIN_ID') ?: "6365371142";
 function sendTelegramAsync($text, $bot_token, $chat_id) {
     $ch = curl_init("https://api.telegram.org/bot$bot_token/sendMessage");
     curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_POST           => true,
-        CURLOPT_POSTFIELDS     => http_build_query([
+        CURLOPT_RETURNTRANSFER  => true,
+        CURLOPT_POST            => true,
+        CURLOPT_POSTFIELDS      => json_encode([
             'chat_id'    => $chat_id,
             'text'       => $text,
             'parse_mode' => 'HTML'
         ]),
-        CURLOPT_TIMEOUT        => 3,
-        CURLOPT_CONNECTTIMEOUT => 2,
-        CURLOPT_NOSIGNAL       => 1,
+        CURLOPT_HTTPHEADER      => ['Content-Type: application/json'],
+        CURLOPT_TIMEOUT         => 5,
+        CURLOPT_CONNECTTIMEOUT  => 2,
+        CURLOPT_NOSIGNAL        => 1,
+        CURLOPT_HTTP_VERSION    => CURL_HTTP_VERSION_2_0,
+        CURLOPT_TCP_NODELAY     => true,
+        CURLOPT_DNS_CACHE_TIMEOUT => 600,
+        CURLOPT_FORBID_REUSE    => false,
+        CURLOPT_FRESH_CONNECT   => false,
     ]);
-    curl_exec($ch);
+    $res = curl_exec($ch);
     curl_close($ch);
+    return $res;
 }
 
 function sendWebhookAsync($url, $payload_arr) {
@@ -129,52 +136,30 @@ if (preg_match('/(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})/i', $body, $dm)) {
 }
 
 // ============================================
-// TIP ANIQLASH — real email formatlariga asoslangan
+// TIP ANIQLASH
 //
-// HAQIQIY FORMATLAR (log.txt dan aniqlangan):
-//   KIRIM:  "Perevod na kartu: OPENBANK HUMO UZCARD P2P, UZ"
-//   CHIQIM: "Platezh: OPENBANK UZCARD POPOLN SCHETA, UZ"
-//   CHIQIM: "Perevod na kartu: OPENBANK SCHET TO UZCARD, UZ"
+// KIRIM (pul KARTA ga tushdi):
+//   "Perevod na kartu: OPENBANK HUMO UZCARD P2P" — P2P o'tkazma
+//   "ZACHISLENIE / zachisleno / postuplenie"       — hisobga tushirildi
+//   "Perevod na kartu:" — SCHET TO va P2P yo'q    — karta o'tkazmasi
 //
-// QOIDA:
-//   1. SCHET TO UZCARD — har doim CHIQIM (OpenBank -> UzCard o'tkazma)
-//   2. POPOLN SCHETA + Platezh — har doim CHIQIM
-//   3. P2P — har doim KIRIM
-//   4. Perevod na kartu (SCHET TO yo'q) — KIRIM
-//   5. ZACHISLENIE — KIRIM
+// CHIQIM (pul KARTADAN ketdi):
+//   "Perevod na kartu: OPENBANK SCHET TO UZCARD"  — OpenBank→UzCard
+//   "Platezh: ... POPOLN SCHETA"                  — hisob to'ldirish
+//   "Platezh:" yoki "SPISANIE"                    — to'lov/chiqarish
 // ============================================
-$type      = 'debit';
-$type_text = "🔴 Chiqim (To'lov)";
-$sign      = "➖";
 
-// CHIQIM belgilari (yuqori ustuvor — avval tekshiriladi)
-$is_schet_to     = (bool)preg_match('/SCHET\s+TO\s+UZCARD/i', $body);
-$is_popoln_plat  = (bool)preg_match('/Platezh.*POPOLN\s+SCHETA/i', $body);
-$is_platezh      = (bool)preg_match('/Platezh\s*:/i', $body);
-$is_spisanie     = (bool)preg_match('/SPISANIE/i', $body);
+// Belgilar
+$is_p2p         = (bool)preg_match('/HUMO\s+UZCARD\s+P2P|P2P\s+UZCARD/i', $body);
+$is_zachislenie = (bool)preg_match('/ZACHISLENIE|zachisleno|postuplenie/i', $body);
+$is_perevod     = (bool)preg_match('/Perevod\s+na\s+kartu\s*:/i', $body);
+$is_schet_to    = (bool)preg_match('/SCHET\s+TO\s+UZCARD/i', $body);
+$is_popoln_plat = (bool)preg_match('/Platezh.*POPOLN\s+SCHETA/i', $body);
+$is_platezh     = (bool)preg_match('/Platezh\s*:/i', $body);
+$is_spisanie    = (bool)preg_match('/SPISANIE/i', $body);
 
-// KIRIM belgilari
-$is_p2p          = (bool)preg_match('/HUMO\s+UZCARD\s+P2P|P2P\s+UZCARD/i', $body);
-$is_zachislenie  = (bool)preg_match('/ZACHISLENIE|zachisleno|postuplenie/i', $body);
-$is_perevod      = (bool)preg_match('/Perevod\s+na\s+kartu\s*:/i', $body);
-
-if ($is_schet_to) {
-    // "Perevod na kartu: OPENBANK SCHET TO UZCARD" — CHIQIM
-    $type      = 'debit';
-    $type_text = "🔴 Chiqim (OpenBank → UzCard o'tkazma)";
-    $sign      = "➖";
-} elseif ($is_platezh && $is_popoln_plat) {
-    // "Platezh: OPENBANK UZCARD POPOLN SCHETA" — CHIQIM
-    $type      = 'debit';
-    $type_text = "🔴 Chiqim (o'tkazma)";
-    $sign      = "➖";
-} elseif ($is_platezh || $is_spisanie) {
-    // Boshqa Platezh yoki SPISANIE — CHIQIM
-    $type      = 'debit';
-    $type_text = $is_spisanie ? "🔴 Chiqim (Hisobdan chiqarish)" : "🔴 Chiqim (To'lov)";
-    $sign      = "➖";
-} elseif ($is_p2p) {
-    // "Perevod na kartu: OPENBANK HUMO UZCARD P2P" — KIRIM
+// Avval KIRIM belgilarini tekshir (P2P, zachislenie — aniq kirim)
+if ($is_p2p) {
     $type      = 'credit';
     $type_text = "🟢 Kirim (P2P o'tkazma)";
     $sign      = "➕";
@@ -182,64 +167,89 @@ if ($is_schet_to) {
     $type      = 'credit';
     $type_text = "🟢 Kirim (Hisobga tushirildi)";
     $sign      = "➕";
+} elseif ($is_schet_to) {
+    // "Perevod na kartu: OPENBANK SCHET TO UZCARD" — CHIQIM
+    $type      = 'debit';
+    $type_text = "🔴 Chiqim (OpenBank → UzCard o'tkazma)";
+    $sign      = "➖";
+} elseif ($is_platezh && $is_popoln_plat) {
+    $type      = 'debit';
+    $type_text = "🔴 Chiqim (o'tkazma)";
+    $sign      = "➖";
+} elseif ($is_platezh || $is_spisanie) {
+    $type      = 'debit';
+    $type_text = $is_spisanie ? "🔴 Chiqim (Hisobdan chiqarish)" : "🔴 Chiqim (To'lov)";
+    $sign      = "➖";
 } elseif ($is_perevod) {
-    // Perevod na kartu — SCHET TO yo'q, P2P yo'q => baribir KIRIM
+    // Perevod na kartu — SCHET TO yo'q, P2P yo'q => KIRIM
     $type      = 'credit';
     $type_text = "🟢 Kirim (Karta o'tkazmasi)";
     $sign      = "➕";
+} else {
+    // Default
+    $type      = 'debit';
+    $type_text = "🔴 Chiqim (To'lov)";
+    $sign      = "➖";
 }
 
 // ============================================
 // MERCHANT ANIQLASH
+// Real nom: "Platezh: OPENBANK UZCARD POPOLN SCHETA, UZ"
+//           "Perevod na kartu: OPENBANK HUMO UZCARD P2P, UZ"
+// OPENBANK — bu faqat bank nomi, uni olib tashlaymiz
+// Qolgan qism — merchant/qabul qiluvchi
 // ============================================
 $merchant = '';
 
-// 1. "Platezh: OPENBANK UZCARD POPOLN SCHETA, UZ" formatidan
-//    Platezh: <MERCHANT>, <COUNTRY_CODE>
+// Texnik so'zlarni tozalovchi funksiya
+function cleanMerchant($raw) {
+    $remove = [
+        '/\bOPENBANK\b/i',
+        '/\bHUMO\s+UZCARD\s+P2P\b/i',
+        '/\bUZCARD\s+P2P\b/i',
+        '/\bP2P\b/i',
+        '/\bSCHET\s+TO\s+UZCARD\b/i',
+        '/\bUZCARD\s+POPOLN\s+SCHETA\b/i',
+        '/\bPOPOLN\s+SCHETA\b/i',
+        '/\bONLINE\s+TRANSFER\b/i',
+        '/\bUZCARD\s+ONLINE\b/i',
+        '/\bUZCARD\b/i',
+        '/\bHUMO\b/i',
+    ];
+    $cleaned = preg_replace($remove, '', $raw);
+    $cleaned = trim(preg_replace('/\s{2,}/', ' ', $cleaned));
+    $cleaned = trim($cleaned, ', ');
+    return $cleaned;
+}
+
+// 1. "Platezh: <MERCHANT>, UZ"
 if (preg_match('/Platezh\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:|$)/i', $body, $mm)) {
-    $raw_merchant = trim($mm[1]);
-    // UZCARD POPOLN SCHETA o'chirish — bu texnik so'z
-    $raw_merchant = preg_replace('/\bUZCARD\s+(POPOLN\s+SCHETA|ONLINE)\b/i', '', $raw_merchant);
-    $raw_merchant = preg_replace('/\bONLINE\s+TRANSFER\b/i', '', $raw_merchant);
-    $raw_merchant = trim($raw_merchant);
-    if (!empty($raw_merchant)) {
-        $merchant = $raw_merchant;
-    }
+    $cleaned = cleanMerchant(trim($mm[1]));
+    if (!empty($cleaned)) $merchant = $cleaned;
 }
 
-// 2. "Perevod na kartu: OPENBANK SCHET TO UZCARD, UZ" — chiqim
-if (empty($merchant) && $is_schet_to) {
-    $merchant = "OpenBank → UzCard";
-}
-
-// 3. "Perevod na kartu: OPENBANK HUMO UZCARD P2P, UZ" — kirim
+// 2. "Perevod na kartu: <MERCHANT>, UZ"
 if (empty($merchant) && $is_perevod) {
     if (preg_match('/Perevod\s+na\s+kartu\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:|$)/i', $body, $mm)) {
-        $raw_merchant = trim($mm[1]);
-        // SCHET TO UZCARD, HUMO UZCARD P2P kabi texnik nomlarni tozalaymiz
-        $raw_merchant = preg_replace('/\bSCHET\s+TO\s+UZCARD\b/i', '', $raw_merchant);
-        $raw_merchant = preg_replace('/\bHUMO\s+UZCARD\s+P2P\b/i', 'P2P', $raw_merchant);
-        $raw_merchant = preg_replace('/\bUZCARD\b/i', '', $raw_merchant);
-        $raw_merchant = trim(preg_replace('/\s{2,}/', ' ', $raw_merchant));
-        if (!empty($raw_merchant)) {
-            $merchant = $raw_merchant;
-        }
+        $cleaned = cleanMerchant(trim($mm[1]));
+        if (!empty($cleaned)) $merchant = $cleaned;
     }
 }
 
-// 4. ZACHISLENIE / POPOLN SCHETA keyin kelgan nom
+// 3. ZACHISLENIE keyin kelgan nom
 if (empty($merchant)) {
     if (preg_match('/(?:ZACHISLENIE|POPOLN\s+SCHETA)\s+([A-Z][A-Z0-9\s]{2,30}?)(?:\s+summa|\s*,|\s*$)/i', $body, $mm)) {
-        $merchant = trim($mm[1]);
+        $cleaned = cleanMerchant(trim($mm[1]));
+        if (!empty($cleaned)) $merchant = $cleaned;
     }
 }
 
-// 5. Fallback
+// 4. Fallback — tip asosida
 if (empty($merchant)) {
-    if ($is_schet_to)    $merchant = "OpenBank → UzCard o'tkazma";
-    elseif ($is_p2p)     $merchant = "P2P o'tkazma";
+    if ($is_schet_to)           $merchant = "UzCard o'tkazma";
+    elseif ($is_p2p)            $merchant = "P2P o'tkazma";
     elseif ($type === 'credit') $merchant = "Noma'lum (kirim)";
-    else                 $merchant = "Noma'lum (chiqim)";
+    else                        $merchant = "Noma'lum (chiqim)";
 }
 
 // ============================================
@@ -399,4 +409,16 @@ if ($ins) {
 
 http_response_code(200);
 echo json_encode(['status' => 'success', 'amount' => $amount, 'type' => $type, 'merchant' => $merchant]);
+
+// Email provayderiga darhol 200 qaytarib, qolgan ishni background da qilamiz
+if (function_exists('fastcgi_finish_request')) {
+    fastcgi_finish_request();
+} else {
+    ob_end_flush();
+    flush();
+}
+
+// ============================================
+// BARCHA ISHLAR TUGADI
+// ============================================
 ?>
