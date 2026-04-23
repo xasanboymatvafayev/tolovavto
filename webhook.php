@@ -166,7 +166,7 @@ if ($is_schet_to) {
 } elseif ($is_platezh && $is_popoln_plat) {
     // "Platezh: OPENBANK UZCARD POPOLN SCHETA" — CHIQIM
     $type      = 'debit';
-    $type_text = "🔴 Chiqim (Hisob to'ldirish)";
+    $type_text = "🔴 Chiqim (o'tkazma)";
     $sign      = "➖";
 } elseif ($is_platezh || $is_spisanie) {
     // Boshqa Platezh yoki SPISANIE — CHIQIM
