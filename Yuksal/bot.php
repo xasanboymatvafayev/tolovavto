@@ -15,9 +15,9 @@ function bot($method, $datas=[]){
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER    => true,
         CURLOPT_POSTFIELDS        => $datas,
-        CURLOPT_TIMEOUT           => 5,
-        CURLOPT_CONNECTTIMEOUT    => 2,
-        CURLOPT_HTTP_VERSION      => CURL_HTTP_VERSION_2_0,
+        CURLOPT_TIMEOUT           => 10,
+        CURLOPT_CONNECTTIMEOUT    => 5,
+        CURLOPT_HTTP_VERSION      => CURL_HTTP_VERSION_1_1,
         CURLOPT_TCP_NODELAY       => true,
         CURLOPT_NOSIGNAL          => 1,
         CURLOPT_DNS_CACHE_TIMEOUT => 300,
@@ -67,22 +67,26 @@ function joinchat($id){
 }
 
 function getStats($connect, $shop_id){
-    $today     = date('Y-m-d');
-    $yesterday = date('Y-m-d', strtotime('-1 day'));
-    $month_s   = date('Y-m-01');
-    $prev_s    = date('Y-m-01', strtotime('-1 month'));
-    $prev_e    = date('Y-m-t',  strtotime('-1 month'));
-    $sid = mysqli_real_escape_string($connect, $shop_id);
+    $today    = date('Y-m-d');
+    $yesterday= date('Y-m-d', strtotime('-1 day'));
+    $month_s  = date('Y-m-01');
+    $prev_s   = date('Y-m-01', strtotime('-1 month'));
+    $prev_e   = date('Y-m-t',  strtotime('-1 month'));
+    $sid      = mysqli_real_escape_string($connect, $shop_id);
 
-    $q = function($sql) use ($connect){ $r=mysqli_fetch_assoc(mysqli_query($connect,$sql)); return (int)($r['s']??0); };
+    // 5 ta alohida SQL o'rniga bitta so'rov — 5x tezroq
+    $row = mysqli_fetch_assoc(mysqli_query($connect, "
+        SELECT
+          COALESCE(SUM(CASE WHEN DATE(date)='$today'     THEN amount ELSE 0 END),0) as bugun,
+          COALESCE(SUM(CASE WHEN DATE(date)='$yesterday' THEN amount ELSE 0 END),0) as kecha,
+          COALESCE(SUM(CASE WHEN date>='$month_s'        THEN amount ELSE 0 END),0) as bu_oy,
+          COALESCE(SUM(CASE WHEN date BETWEEN '$prev_s 00:00:00' AND '$prev_e 23:59:59' THEN amount ELSE 0 END),0) as otgan_oy,
+          COALESCE(SUM(amount),0) as jami
+        FROM checkout
+        WHERE status='paid' AND shop_id='$sid'
+    "));
 
-    return [
-        'bugun'    => $q("SELECT COALESCE(SUM(amount),0) as s FROM checkout WHERE status='paid' AND shop_id='$sid' AND DATE(date)='$today'"),
-        'kecha'    => $q("SELECT COALESCE(SUM(amount),0) as s FROM checkout WHERE status='paid' AND shop_id='$sid' AND DATE(date)='$yesterday'"),
-        'bu_oy'    => $q("SELECT COALESCE(SUM(amount),0) as s FROM checkout WHERE status='paid' AND shop_id='$sid' AND date>='$month_s'"),
-        'otgan_oy' => $q("SELECT COALESCE(SUM(amount),0) as s FROM checkout WHERE status='paid' AND shop_id='$sid' AND date BETWEEN '$prev_s 00:00:00' AND '$prev_e 23:59:59'"),
-        'jami'     => $q("SELECT COALESCE(SUM(amount),0) as s FROM checkout WHERE status='paid' AND shop_id='$sid'"),
-    ];
+    return $row;
 }
 
 // ============================================================
