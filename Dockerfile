@@ -1,17 +1,31 @@
-FROM php:8.2-apache
+FROM php:8.2-fpm-alpine
 
 RUN docker-php-ext-install mysqli
 
-# MPM konfliktini hal qilish
-RUN a2dismod mpm_event mpm_worker 2>/dev/null || true \
-    && a2enmod mpm_prefork rewrite
+RUN apk add --no-cache nginx
 
-RUN echo '#!/bin/bash\nPORT=${PORT:-8080}\nsed -i "s/APACHE_PORT/$PORT/g" /etc/apache2/ports.conf\nsed -i "s/APACHE_PORT/$PORT/g" /etc/apache2/sites-enabled/000-default.conf\nexec apache2-foreground' > /entrypoint.sh \
-    && chmod +x /entrypoint.sh
+RUN echo '#!/bin/sh
+PORT=${PORT:-8080}
+cat > /etc/nginx/http.d/default.conf << NGINX
+server {
+    listen $PORT;
+    root /var/www/html;
+    index index.php index.html;
 
-RUN sed -i 's/Listen 80/Listen APACHE_PORT/' /etc/apache2/ports.conf \
-    && sed -i 's/<VirtualHost \*:80>/<VirtualHost *:APACHE_PORT>/' /etc/apache2/sites-enabled/000-default.conf \
-    && echo 'ServerName localhost' >> /etc/apache2/apache2.conf
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
+    location ~ \.php$ {
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+NGINX
+php-fpm -D
+exec nginx -g "daemon off;"
+' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 WORKDIR /var/www/html
 COPY . .
