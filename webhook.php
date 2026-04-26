@@ -73,6 +73,30 @@ function sendWebhook($url, $payload) {
     curl_close($ch);
 }
 
+// Telegram dan user ismini olish
+// user_id = Telegram chat ID (users jadvalidagi user_id)
+function getTgName($bot_token, $user_id) {
+    if (empty($user_id)) return null;
+    $ch = curl_init("https://api.telegram.org/bot{$bot_token}/getChat?chat_id={$user_id}");
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 3,
+        CURLOPT_CONNECTTIMEOUT => 2,
+        CURLOPT_NOSIGNAL       => 1,
+    ]);
+    $r = curl_exec($ch);
+    curl_close($ch);
+    if (!$r) return null;
+    $d = json_decode($r, true);
+    if (empty($d['ok']) || empty($d['result'])) return null;
+    $res  = $d['result'];
+    $name = trim(($res['first_name'] ?? '') . ' ' . ($res['last_name'] ?? ''));
+    if (!empty($res['username'])) {
+        $name = trim($name) . ' (@' . $res['username'] . ')';
+    }
+    return !empty(trim($name)) ? trim($name) : null;
+}
+
 // ============================================
 // TASDIQLASH LINKI
 // ============================================
@@ -91,10 +115,6 @@ foreach ($lm[0] as $l) {
 // ============================================
 // SUMMA VA BALANS
 // ============================================
-// "summa:1000.00 UZS balans:8228.00 UZS" — ikki ko'rinish qo'llab-quvvatlanadi:
-// 1) "summa : 50 000 UZS"  (bo'sh joy bilan)
-// 2) "summa:1000.00 UZS"   (bo'sh joysiz, nuqta bilan)
-
 $body_norm = preg_replace('/(\d)\s(\d{3})(?=[\s,.]|UZS|$)/', '$1$2', $body);
 
 if (!preg_match(
@@ -119,7 +139,6 @@ if ($amount <= 0) {
 // ============================================
 // KARTA OXIRGI 4 RAQAM
 // ============================================
-// "karta ***9246" yoki "karta **** 9246" ko'rinishlarini ushlaydi
 $card_last = '****';
 if (preg_match('/karta\s+\*+\s*(\d{4})/i', $body, $cm)) {
     $card_last = $cm[1];
@@ -128,7 +147,6 @@ if (preg_match('/karta\s+\*+\s*(\d{4})/i', $body, $cm)) {
 // ============================================
 // SANA
 // ============================================
-// "26.04.26 18:06" formatini ushlaydi
 $op_date = date('d.m.Y H:i');
 if (preg_match('/(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})/i', $body, $dm)) {
     $dp = explode('.', $dm[1]);
@@ -136,42 +154,39 @@ if (preg_match('/(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})/i', $body, $dm)) {
 }
 
 // ============================================
-// TIP ANIQLASH — LOG DAN OLINGAN REAL FORMAT
+// TIP ANIQLASH
 // ============================================
 //
-// REAL SMS FORMATLARI (log.txt dan):
+// KIRIM (credit):
+//   "Perevod na kartu: OPENBANK SCHET TO UZCARD" — bank sizga o'tkazdi
+//   "HUMO UZCARD P2P" — p2p kirim
+//   "ZACHISLENIE / postuplenie" — hisobga o'tkazilgan
 //
 // CHIQIM (debit):
-//   "Perevod na kartu: OPENBANK SCHET TO UZCARD, UZ, ..."  ← biz yuborgan
-//   "Platezh: MERCHANT_NAME, UZ, ..."
-//   "SPISANIE ..."
+//   "Perevod na kartu: JOHN DOE" (SCHET TO yo'q) — siz yuborgan
+//   "Platezh: MERCHANT"
+//   "SPISANIE"
 //
-// KIRIM (credit):
-//   "HUMO UZCARD P2P ..."   ← bizga biror kishi p2p yuborgan
-//   "ZACHISLENIE ..."        ← hisobga o'tkazilgan
-//   "postuplenie ..."
-//
-// MUHIM: "Perevod na kartu" + "SCHET TO UZCARD" = DOIM CHIQIM
-//        "Perevod na kartu" HECH QACHON kirim emas!
+// QOIDA: SCHET TO UZCARD = DOIM KIRIM (ustunlik)
 
-$is_schet_to    = (bool)preg_match('/SCHET\s+TO\s+UZCARD/i',          $body);
-$is_perevod_out = (bool)preg_match('/Perevod\s+na\s+kartu\s*:/i',      $body);
-$is_platezh     = (bool)preg_match('/Platezh\s*:/i',                   $body);
-$is_spisanie    = (bool)preg_match('/SPISANIE/i',                       $body);
-
+$is_schet_to    = (bool)preg_match('/SCHET\s+TO\s+UZCARD/i',               $body);
+$is_perevod     = (bool)preg_match('/Perevod\s+na\s+kartu\s*:/i',          $body);
+$is_platezh     = (bool)preg_match('/Platezh\s*:/i',                       $body);
+$is_spisanie    = (bool)preg_match('/SPISANIE/i',                           $body);
 $is_p2p         = (bool)preg_match('/HUMO\s+UZCARD\s+P2P|P2P\s+UZCARD/i', $body);
 $is_zach        = (bool)preg_match('/ZACHISLENIE|zachisleno|postuplenie/i', $body);
 
-// Avval CHIQIM belgilari tekshiriladi (ustunlik beradi)
-if ($is_perevod_out || $is_schet_to || $is_platezh || $is_spisanie) {
-    $type = 'debit';    // CHIQIM
-} elseif ($is_p2p || $is_zach) {
+if ($is_schet_to || $is_p2p || $is_zach) {
     $type = 'credit';   // KIRIM
+} elseif ($is_perevod || $is_platezh || $is_spisanie) {
+    $type = 'debit';    // CHIQIM
 } else {
-    $type = 'debit';    // Noma'lum = xavfsiz tomon (chiqim)
+    $type = 'debit';    // Noma'lum = xavfsiz tomon
 }
 
-// DEBUG LOG — kerak bo'lmasa o'chirib qo'yish mumkin
+$is_perevod_out = $is_perevod && !$is_schet_to;
+
+// DEBUG LOG
 $debug_log = date('Y-m-d H:i:s') . " | TYPE=$type | perevod_out=$is_perevod_out"
     . " | schet_to=$is_schet_to | platezh=$is_platezh | spisanie=$is_spisanie"
     . " | p2p=$is_p2p | zach=$is_zach | amount=$amount | card=$card_last\n";
@@ -181,7 +196,6 @@ file_put_contents(__DIR__ . '/debug.log', $debug_log, FILE_APPEND);
 // MERCHANT — KIMDAN / QAYERGA
 // ============================================
 function cleanName($raw) {
-    // Texnik so'zlarni tozalaymiz
     $stop = [
         '/\bOPENBANK\b/i',
         '/\bHUMO\s+UZCARD\s+P2P\b/i',
@@ -199,47 +213,58 @@ function cleanName($raw) {
 
 $merchant = '';
 
-// 1. "Platezh: <MERCHANT>, UZ, ..."
-if ($is_platezh) {
-    if (preg_match(
-        '/Platezh\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:|$)/i',
-        $body, $mm
-    )) {
-        $c = cleanName(trim($mm[1]));
-        if (!empty($c)) $merchant = $c;
+// SMS DAN TO'G'RIDAN TO'G'RI KIMDAN/QAYERGA OLAMIZ
+//
+// Real misollar:
+//   KIRIM: "Perevod na kartu: OPENBANK SCHET TO UZCARD, UZ,..."  → OPENBANK
+//   KIRIM: "Perevod na kartu: CLICK SCHET TO UZCARD, UZ,..."     → CLICK
+//   KIRIM: "Perevod na kartu: PAYME SCHET TO UZCARD, UZ,..."     → PAYME
+//   CHIQIM: "Perevod na kartu: JOHN DOE, UZ,..."                 → JOHN DOE
+//   CHIQIM: "Platezh: PAYNET UZ, UZ,..."                         → PAYNET UZ
+//   KIRIM: "ZACHISLENIE MYBANK summa:..."                         → MYBANK
+
+// 1. "Perevod na kartu: XXX SCHET TO UZCARD" — KIRIM
+//    XXX = qaysi tizim/bank orqali kelgan (CLICK, PAYME, OPENBANK, ...)
+if ($is_schet_to && $is_perevod) {
+    if (preg_match('/Perevod\s+na\s+kartu\s*:\s*([^,]+?)\s+SCHET\s+TO/i', $body, $mm)) {
+        $merchant = trim($mm[1]);
     }
+    if (empty($merchant)) $merchant = "O'tkazma";
 }
 
-// 2. "Perevod na kartu: <MERCHANT>, UZ, ..."
-//    Real misol: "Perevod na kartu: OPENBANK SCHET TO UZCARD, UZ,26.04.26..."
+// 2. "Perevod na kartu: JOHN DOE, UZ,..." — CHIQIM (SCHET TO yo'q)
 if (empty($merchant) && $is_perevod_out) {
     if (preg_match(
         '/Perevod\s+na\s+kartu\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:|$)/i',
         $body, $mm
     )) {
-        $c = cleanName(trim($mm[1]));
-        if (!empty($c)) $merchant = $c;
+        $merchant = trim($mm[1]);
     }
 }
 
-// 3. ZACHISLENIE keyin nom
+// 3. "Platezh: MERCHANT, UZ,..." — CHIQIM
+if (empty($merchant) && $is_platezh) {
+    if (preg_match(
+        '/Platezh\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:|$)/i',
+        $body, $mm
+    )) {
+        $merchant = trim($mm[1]);
+    }
+}
+
+// 4. "ZACHISLENIE MYBANK summa:..." — KIRIM
 if (empty($merchant) && $is_zach) {
     if (preg_match(
         '/ZACHISLENIE\s+([A-Z][A-Z0-9\s]{2,30}?)(?:\s+summa|\s*,|\s*$)/i',
         $body, $mm
     )) {
-        $c = cleanName(trim($mm[1]));
-        if (!empty($c)) $merchant = $c;
+        $merchant = trim($mm[1]);
     }
 }
 
-// 4. Fallback
+// 5. Fallback
 if (empty($merchant)) {
-    if ($type === 'credit') {
-        $merchant = ($card_last !== '****') ? "Karta *$card_last" : "O'tkazma (kirim)";
-    } else {
-        $merchant = ($card_last !== '****') ? "Karta *$card_last" : "To'lov (chiqim)";
-    }
+    $merchant = ($type === 'credit') ? "O'tkazma (kirim)" : "To'lov (chiqim)";
 }
 
 // ============================================
@@ -302,6 +327,9 @@ if ($ins) {
     $amt_fmt = number_format($amount, 0, '.', ' ');
     $bal_fmt = number_format($balance, 0, '.', ' ');
 
+    // Kimdan yuborgan (Telegram ismi) — checkout topilsa to'ldiriladi
+    $sender_name = null;
+
     // ============================================
     // KIRIM — checkout bilan bog'lash
     // ============================================
@@ -324,9 +352,13 @@ if ($ins) {
             // Checkout ni paid qilish
             $col_check = mysqli_query($connect, "SHOW COLUMNS FROM checkout LIKE 'paid_to_user'");
             if (mysqli_num_rows($col_check) > 0) {
-                mysqli_query($connect, "UPDATE checkout SET status='paid', paid_to_user='1' WHERE id='$checkout_id'");
+                mysqli_query($connect,
+                    "UPDATE checkout SET status='paid', paid_to_user='1' WHERE id='$checkout_id'"
+                );
             } else {
-                mysqli_query($connect, "UPDATE checkout SET status='paid' WHERE id='$checkout_id'");
+                mysqli_query($connect,
+                    "UPDATE checkout SET status='paid' WHERE id='$checkout_id'"
+                );
             }
 
             // Payments ni used qilish
@@ -337,16 +369,19 @@ if ($ins) {
                  WHERE id='$new_payment_id'"
             );
 
-            // Foydalanuvchi balansini oshirish
+            // Foydalanuvchi ismini Telegram dan olish
             if (!empty($ch_user)) {
+                $sender_name = getTgName($bot_token, $ch_user);
+
+                // Foydalanuvchi balansini oshirish
                 $user_esc = mysqli_real_escape_string($connect, $ch_user);
                 $upd = mysqli_query($connect,
                     "UPDATE users SET balance=balance+$amount, deposit=deposit+$amount WHERE user_id='$user_esc'"
                 );
                 if ($upd && mysqli_affected_rows($connect) > 0) {
                     sendTg(
-                        "✅ <b>To'lov tasdiqlandi!</b>\n\n".
-                        "💵 <b>" . number_format($amount,0,'.',' ') . " UZS</b> hisobingizga avtomatik qo'shildi!",
+                        "✅ <b>To'lov tasdiqlandi!</b>\n\n" .
+                        "💵 <b>" . number_format($amount, 0, '.', ' ') . " UZS</b> hisobingizga avtomatik qo'shildi!",
                         $bot_token, $ch_user
                     );
                 }
@@ -365,7 +400,9 @@ if ($ins) {
             if ($srow) {
                 $shop_owner_id  = $srow['user_id']     ?? null;
                 $shop_wh_url    = $srow['webhook_url'] ?? null;
-                $shop_name_show = $srow['shop_name']   ? base64_decode($srow['shop_name']) : $ch_shop;
+                $shop_name_show = $srow['shop_name']
+                    ? base64_decode($srow['shop_name'])
+                    : $ch_shop;
 
                 if (!empty($shop_wh_url)) {
                     sendWebhook($shop_wh_url, [
@@ -373,19 +410,24 @@ if ($ins) {
                         'order'       => $ch_order,
                         'amount'      => $amount,
                         'merchant'    => $merchant,
+                        'sender'      => $sender_name,
                         'date'        => $op_date,
                         'confirm_url' => $confirm_url,
                     ]);
                 }
 
                 if (!empty($shop_owner_id) && $shop_owner_id !== $ch_user) {
+                    $from_display = $sender_name
+                        ? htmlspecialchars($sender_name)
+                        : htmlspecialchars($merchant);
+
                     sendTg(
-                        "💰 <b>Yangi to'lov!</b>\n".
-                        "🏪 Kassa: <b>" . htmlspecialchars($shop_name_show) . "</b>\n".
-                        "━━━━━━━━━━━━━━\n".
-                        "➕ Summa: <b>" . number_format($amount,0,'.',' ') . " UZS</b>\n".
-                        "🔖 Order: <code>$ch_order</code>\n".
-                        "👤 Kimdan: <b>" . htmlspecialchars($merchant) . "</b>\n".
+                        "💰 <b>Yangi to'lov!</b>\n" .
+                        "🏪 Kassa: <b>" . htmlspecialchars($shop_name_show) . "</b>\n" .
+                        "━━━━━━━━━━━━━━\n" .
+                        "➕ Summa: <b>" . number_format($amount, 0, '.', ' ') . " UZS</b>\n" .
+                        "🔖 Order: <code>$ch_order</code>\n" .
+                        "👤 Kimdan: <b>$from_display</b>\n" .
                         "🕒 Vaqt: $op_date",
                         $bot_token, $shop_owner_id
                     );
@@ -400,11 +442,15 @@ if ($ins) {
     if ($type === 'credit') {
         $type_label = "🟢 Kirim (O'tkazma)";
         $sign       = "➕";
-        $from_to    = "👤 Kimdan";
+        // Telegram ismi topilgan bo'lsa — ismi, topilmagan bo'lsa — "Bank o'tkazmasi"
+        $from_display = $sender_name
+            ? htmlspecialchars($sender_name)
+            : htmlspecialchars($merchant);
+        $from_label = "👤 Kimdan: <b>$from_display</b>";
     } else {
         $type_label = "🔴 Chiqim (To'lov)";
         $sign       = "➖";
-        $from_to    = "📤 Qayerga";
+        $from_label = "📤 Qayerga: <b>" . htmlspecialchars($merchant) . "</b>";
     }
 
     $msg  = "🔔 <b>UZCARD Bildirishnomasi</b>\n";
@@ -412,7 +458,7 @@ if ($ins) {
     $msg .= "━━━━━━━━━━━━━━\n";
     $msg .= "$sign Summa: <b>$amt_fmt UZS</b>\n";
     $msg .= "💳 Karta: **** $card_last\n";
-    $msg .= "$from_to: <b>" . htmlspecialchars($merchant) . "</b>\n";
+    $msg .= "$from_label\n";
     $msg .= "🕒 Vaqt: $op_date\n";
     $msg .= "━━━━━━━━━━━━━━\n";
     $msg .= "💵 Qoldiq: <b>$bal_fmt UZS</b>";
@@ -421,10 +467,11 @@ if ($ins) {
 }
 
 http_response_code(200);
-echo json_encode(['status'=>'success','amount'=>$amount,'type'=>$type,'merchant'=>$merchant]);
+echo json_encode(['status' => 'success', 'amount' => $amount, 'type' => $type, 'merchant' => $merchant]);
 
 if (function_exists('fastcgi_finish_request')) {
     fastcgi_finish_request();
 } else {
-    ob_end_flush(); flush();
+    ob_end_flush();
+    flush();
 }
