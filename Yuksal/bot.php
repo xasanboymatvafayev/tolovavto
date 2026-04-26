@@ -10,20 +10,29 @@ $admin = [$administrator];
 $sana = date('Y-m-d');
 $soat = date('H:i:s');
 
+// Persistent cURL handle — TCP/SSL qayta ishlatiladi, har safar yangi ulanish yo'q
+$_bot_ch = null;
 function bot($method, $datas=[]){
-    $ch = curl_init("https://api.telegram.org/bot".API_KEY."/".$method);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER    => true,
-        CURLOPT_POSTFIELDS        => $datas,
-        CURLOPT_TIMEOUT           => 10,
-        CURLOPT_CONNECTTIMEOUT    => 5,
-        CURLOPT_HTTP_VERSION      => CURL_HTTP_VERSION_1_1,
-        CURLOPT_TCP_NODELAY       => true,
-        CURLOPT_NOSIGNAL          => 1,
-        CURLOPT_DNS_CACHE_TIMEOUT => 300,
-    ]);
-    $res = curl_exec($ch); curl_close($ch);
-    return json_decode($res);
+    global $_bot_ch;
+    if(!$_bot_ch){
+        $_bot_ch = curl_init();
+        curl_setopt_array($_bot_ch, [
+            CURLOPT_RETURNTRANSFER    => true,
+            CURLOPT_TIMEOUT           => 8,
+            CURLOPT_CONNECTTIMEOUT    => 3,
+            CURLOPT_HTTP_VERSION      => CURL_HTTP_VERSION_1_1,
+            CURLOPT_TCP_NODELAY       => true,
+            CURLOPT_NOSIGNAL          => 1,
+            CURLOPT_DNS_CACHE_TIMEOUT => 600,
+            CURLOPT_FORBID_REUSE      => false,
+            CURLOPT_FRESH_CONNECT     => false,
+            CURLOPT_HTTPHEADER        => ['Connection: keep-alive','Expect:'],
+        ]);
+    }
+    curl_setopt($ch=$_bot_ch, CURLOPT_URL, "https://api.telegram.org/bot".API_KEY."/".$method);
+    curl_setopt($_bot_ch, CURLOPT_POSTFIELDS, $datas);
+    $res = curl_exec($_bot_ch);
+    return $res ? json_decode($res) : null;
 }
 
 function generate(){
@@ -38,7 +47,17 @@ function joinchat($id){
     $result = $connect->query("SELECT type,link,channelID,title FROM `channels`");
     if($result->num_rows == 0 || $id == $administrator) return true;
 
-    // Parallel getChatMember so'rovlari — lock kanallar uchun
+    // 30 soniya DB cache — Telegram API ni keraksiz chaqirmaymiz
+    $id_esc = mysqli_real_escape_string($connect, $id);
+    $cache_row = mysqli_fetch_assoc(mysqli_query($connect,
+        "SELECT joined_ok, joined_check FROM users WHERE user_id='$id_esc' LIMIT 1"
+    ));
+    if($cache_row && $cache_row['joined_ok'] == 1 &&
+       !empty($cache_row['joined_check']) &&
+       (time() - strtotime($cache_row['joined_check'])) < 30){
+        return true;
+    }
+
     $lock_channels = [];
     $all_rows = [];
     while($row=$result->fetch_assoc()){
@@ -46,10 +65,10 @@ function joinchat($id){
         if($row['type']=="lock") $lock_channels[] = $row['channelID'];
     }
 
-    // Parallel cURL — barcha getChatMember bir vaqtda
     $statuses = [];
     if(!empty($lock_channels)){
         $mh = curl_multi_init();
+        curl_multi_setopt($mh, CURLMOPT_PIPELINING, 2);
         $handles = [];
         foreach($lock_channels as $chId){
             $ch = curl_init("https://api.telegram.org/bot".API_KEY."/getChatMember");
@@ -59,12 +78,17 @@ function joinchat($id){
                 CURLOPT_TIMEOUT=>4,
                 CURLOPT_CONNECTTIMEOUT=>2,
                 CURLOPT_NOSIGNAL=>1,
+                CURLOPT_TCP_NODELAY=>true,
+                CURLOPT_HTTPHEADER=>['Connection: keep-alive','Expect:'],
             ]);
             curl_multi_add_handle($mh,$ch);
             $handles[$chId]=$ch;
         }
         $active=null;
-        do{ curl_multi_exec($mh,$active); curl_multi_select($mh,0.5); } while($active>0);
+        do{
+            $st = curl_multi_exec($mh,$active);
+            if($active) curl_multi_select($mh, 0.3);
+        } while($active>0 && $st==CURLM_OK);
         foreach($handles as $chId=>$ch){
             $res=json_decode(curl_multi_getcontent($ch));
             $statuses[$chId]=$res->result->status ?? null;
@@ -77,7 +101,6 @@ function joinchat($id){
     foreach($all_rows as $row){
         $type=$row['type']; $link=$row['link']; $channelID=$row['channelID'];
         $title = $row['title'] ? base64_decode($row['title']) : "Kanal";
-
         if($type=="lock"){
             $s = $statuses[$channelID] ?? null;
             if($s=="left"||$s=="kicked"||$s===null){
@@ -94,10 +117,14 @@ function joinchat($id){
         }
     }
     if($no_subs>0){
+        mysqli_query($connect,"UPDATE users SET joined_ok=0, joined_check=NOW() WHERE user_id='$id_esc'");
         $button[]=['text'=>"🔄 Tekshirish",'callback_data'=>"result"];
         bot('sendMessage',['chat_id'=>$id,'text'=>"⛔ Kanallarga obuna bo'ling:",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>array_chunk($button,1)])]);
         exit;
-    } else return true;
+    } else {
+        mysqli_query($connect,"UPDATE users SET joined_ok=1, joined_check=NOW() WHERE user_id='$id_esc'");
+        return true;
+    }
 }
 
 function getStats($connect, $shop_id){
@@ -163,8 +190,6 @@ if(isset($callback)){
 if(!$cid) exit;
 
 $cid_esc = mysqli_real_escape_string($connect, $cid);
-
-$new_key = generate();
 
 $res      = mysqli_query($connect,"SELECT id,balance,deposit,step FROM users WHERE user_id='$cid_esc' LIMIT 1");
 $user_row = mysqli_fetch_assoc($res);
@@ -418,16 +443,15 @@ if(!empty($text) && $text=="📖 API Hujjatlar"){
 function show_kassalar($cid,$connect,$mid=null,$edit=false){
     $cid_e = mysqli_real_escape_string($connect,$cid);
     $result = mysqli_query($connect,"SELECT * FROM `shops` WHERE `user_id`='$cid_e'");
-    $i=0; $key=[];
+    $i=0; $key=[]; $has_rows=false;
     while($us=mysqli_fetch_assoc($result)){
-        $i++;
+        $has_rows=true; $i++;
         $icon = ($us['status']=="waiting")?"🔄":(($us['status']=="confirm")?"✅":"⛔");
         $key[]=[["text"=>"$i. $icon ".base64_decode($us['shop_name']),"callback_data"=>"kassa_set=".$us['id']]];
     }
     $key[]=[['text'=>"➕ Kassa qoʻshish",'callback_data'=>"add_kassa"]];
     $kb  = json_encode(['inline_keyboard'=>$key]);
-    $r2  = mysqli_query($connect,"SELECT * FROM `shops` WHERE `user_id`='$cid_e'");
-    $txt = (mysqli_num_rows($r2)>0) ? "🏪 <b>Kassalaringiz:</b>" : "⚠️ Kassalar mavjud emas!";
+    $txt = $has_rows ? "🏪 <b>Kassalaringiz:</b>" : "⚠️ Kassalar mavjud emas!";
     if($edit) bot('editmessagetext',['chat_id'=>$cid,'message_id'=>$mid,'text'=>$txt,'parse_mode'=>'html','reply_markup'=>$kb]);
     else      bot('sendmessage',['chat_id'=>$cid,'text'=>$txt,'parse_mode'=>'html','reply_markup'=>$kb]);
 }
@@ -507,20 +531,23 @@ if(!empty($data) && mb_stripos($data,"kassa_sozlama=")!==false){
     $rew       = mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM shops WHERE shop_id='$shop_id_s'"));
     $card_num  = $rew['card_number'] ?? null;
     $card_bank = $rew['card_bank'] ?? null;
+    $card_owner= $rew['card_owner'] ?? null;
 
     $provider = "—";
     if($card_num){
         $first    = substr(preg_replace('/\s+/','',$card_num),0,1);
         $provider = ($first=='9') ? "HUMO ✅" : "UZCARD ✅";
     }
-    $card_show  = $card_num ? chunk_split(preg_replace('/\s+/','',$card_num),4,' ') : "Kiritilmagan";
-    $email_show = !empty($rew['email']) ? $rew['email'] : "Kiritilmagan";
+    $card_show   = $card_num ? chunk_split(preg_replace('/\s+/','',$card_num),4,' ') : "Kiritilmagan";
+    $owner_show  = !empty($card_owner) ? $card_owner : "Kiritilmagan";
+    $email_show  = !empty($rew['email']) ? $rew['email'] : "Kiritilmagan";
 
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
         'text'=>"⚙️ <b>Kassa sozlamalari</b>\n\n".
             "📧 Ulangan e-mail: <code>$email_show</code>\n".
             "🔌 Provider: $provider\n".
             "💳 Karta: <code>$card_show</code>".($card_bank?" <b>$card_bank</b>":"")."\n".
+            "👤 Karta egasi: <b>$owner_show</b>\n".
             "🆔 Shop ID: <code>$shop_id_s</code>\n".
             "🔑 Shop Key: <code>".$rew['shop_key']."</code>\n".
             "🔗 Manzil: <b>".$rew['shop_address']."</b>",
@@ -557,9 +584,8 @@ if(!empty($data) && mb_stripos($data,"user_history=")!==false){
          ORDER BY c.date DESC LIMIT $per_page OFFSET $offset"
     );
 
-    $user_bal = mysqli_fetch_assoc(mysqli_query($connect,"SELECT balance,deposit FROM users WHERE user_id='$cid_esc'"));
-    $bal_show = number_format((int)($user_bal['balance'] ?? 0),0,'.',' ');
-    $dep_show = number_format((int)($user_bal['deposit'] ?? 0),0,'.',' ');
+    $bal_show = number_format((int)$balance,0,'.',' ');
+    $dep_show = number_format((int)$payment,0,'.',' ');
 
     if($res && mysqli_num_rows($res)>0){
         $list = ""; $i = $offset+1;
@@ -611,8 +637,11 @@ if(!empty($data) && mb_stripos($data,"kassa_history=")!==false){
     $total      = (int)($total_r['c'] ?? 0);
     $total_pages= max(1, ceil($total/$per_page));
 
+    // Bitta so'rovda ham ro'yxat, ham umumiy statistika
     $res = mysqli_query($connect,
-        "SELECT p.amount, p.date, p.card_type, p.merchant, p.status, p.used_order
+        "SELECT p.amount, p.date, p.card_type, p.merchant, p.status, p.used_order,
+                SUM(CASE WHEN p.card_type='credit' THEN p.amount ELSE 0 END) OVER() as _kirim,
+                SUM(CASE WHEN p.card_type='debit'  THEN p.amount ELSE 0 END) OVER() as _chiqim
          FROM payments p
          LEFT JOIN checkout ch ON ch.`order` = p.used_order
          WHERE COALESCE(p.shop_id, ch.shop_id) = '$shop_id_h_esc'
@@ -622,7 +651,13 @@ if(!empty($data) && mb_stripos($data,"kassa_history=")!==false){
 
     if($res && mysqli_num_rows($res)>0){
         $list = ""; $i = $offset+1;
+        $kirim_fmt = '0'; $chiqim_fmt = '0'; $first = true;
         while($row=mysqli_fetch_assoc($res)){
+            if($first){
+                $kirim_fmt  = number_format((int)($row['_kirim'] ?? 0),0,'.',' ');
+                $chiqim_fmt = number_format((int)($row['_chiqim'] ?? 0),0,'.',' ');
+                $first = false;
+            }
             $amt     = number_format((int)$row['amount'],0,'.',' ');
             $dt      = substr($row['date'] ?? '',0,16);
             $merchant= $row['merchant'] ?? '';
@@ -639,17 +674,6 @@ if(!empty($data) && mb_stripos($data,"kassa_history=")!==false){
             $list .= $line."\n\n";
             $i++;
         }
-
-        $stats = mysqli_fetch_assoc(mysqli_query($connect,
-            "SELECT
-               COALESCE(SUM(CASE WHEN p.card_type='credit' THEN p.amount ELSE 0 END),0) as jami_kirim,
-               COALESCE(SUM(CASE WHEN p.card_type='debit'  THEN p.amount ELSE 0 END),0) as jami_chiqim
-             FROM payments p
-             LEFT JOIN checkout ch ON ch.`order` = p.used_order
-             WHERE COALESCE(p.shop_id, ch.shop_id) = '$shop_id_h_esc'"
-        ));
-        $kirim_fmt  = number_format((int)$stats['jami_kirim'],0,'.',' ');
-        $chiqim_fmt = number_format((int)$stats['jami_chiqim'],0,'.',' ');
 
         $header = "💰 <b>To'lovlar tarixi</b> (jami: $total ta)\n";
         $header .= "🟢 Kirim: <b>$kirim_fmt</b> so'm | 🔴 Chiqim: <b>$chiqim_fmt</b> so'm\n\n";
@@ -723,8 +747,30 @@ if(!empty($step) && mb_stripos($step,"set_card_num=")!==false && !empty($text)){
         bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ <b>16 ta raqam kiriting!</b>",'parse_mode'=>'html']);
         exit;
     }
+    // Karta raqami qabul qilindi, endi ism-familya so'raymiz
+    mysqli_query($connect,"UPDATE users SET step='set_card_owner=$shop_id_c=$set_id_c=$card' WHERE user_id='$cid_esc'");
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ Karta: <code>".chunk_split($card,4,' ')."</code>\n\n👤 <b>Karta egasining ism-familyasini kiriting:</b>\n\n<i>Masalan: ALI VALIYEV</i>",'parse_mode'=>'html','reply_markup'=>$back]);
+    exit;
+}
+if(!empty($step) && mb_stripos($step,"set_card_owner=")!==false && !empty($text)){
+    $parts     = explode("=",$step);
+    $shop_id_c = $parts[1];
+    $set_id_c  = $parts[2];
+    $card      = $parts[3];
+    if($text=="⏪ Ortga"){
+        mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid_esc'");
+        exit;
+    }
+    $owner = strtoupper(trim($text));
+    if(strlen($owner)<3 || strlen($owner)>40){
+        bot('sendMessage',['chat_id'=>$cid,'text'=>"❌ <b>Ism-familyani to'g'ri kiriting!</b>",'parse_mode'=>'html']);
+        exit;
+    }
+    $owner_esc = mysqli_real_escape_string($connect,$owner);
     mysqli_query($connect,"UPDATE users SET step='set_card_bank=$shop_id_c=$set_id_c=$card' WHERE user_id='$cid_esc'");
-    bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ Karta: <code>$card</code>\n\n🏦 <b>Bank turini tanlang:</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
+    // Vaqtincha owner ni action ga saqlaymiz
+    mysqli_query($connect,"UPDATE users SET action='".base64_encode($owner_esc)."' WHERE user_id='$cid_esc'");
+    bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ Egasi: <b>$owner</b>\n\n🏦 <b>Bank turini tanlang:</b>",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
         [['text'=>"🔵 UzCard",'callback_data'=>"card_bank=UzCard=$shop_id_c=$set_id_c=$card"]],
         [['text'=>"🟢 Humo",'callback_data'=>"card_bank=Humo=$shop_id_c=$set_id_c=$card"]],
         [['text'=>"🟡 Visa",'callback_data'=>"card_bank=Visa=$shop_id_c=$set_id_c=$card"]],
@@ -738,11 +784,15 @@ if(!empty($data) && mb_stripos($data,"card_bank=")!==false){
     $shop_id_c = $parts[2];
     $set_id_c  = $parts[3];
     $card      = $parts[4];
-    mysqli_query($connect,"UPDATE shops SET card_number='$card', card_bank='$bank' WHERE shop_id='$shop_id_c'");
-    mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid_esc'");
+    // Owner ni action dan olamiz
+    $user_action = mysqli_fetch_assoc(mysqli_query($connect,"SELECT action FROM users WHERE user_id='$cid_esc'"));
+    $owner = !empty($user_action['action']) ? base64_decode($user_action['action']) : '';
+    $owner_esc = mysqli_real_escape_string($connect,$owner);
+    mysqli_query($connect,"UPDATE shops SET card_number='$card', card_bank='$bank', card_owner='$owner_esc' WHERE shop_id='$shop_id_c'");
+    mysqli_query($connect,"UPDATE users SET step='null', action='member' WHERE user_id='$cid_esc'");
     $masked = chunk_split($card,4,' ');
     bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
-        'text'=>"✅ <b>Karta saqlandi!</b>\n\n💳 <code>$masked</code>\n🏦 Bank: <b>$bank</b>",
+        'text'=>"✅ <b>Karta saqlandi!</b>\n\n💳 <code>$masked</code>\n👤 Egasi: <b>$owner</b>\n🏦 Bank: <b>$bank</b>",
         'parse_mode'=>'html',
         'reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"⏪ Ortga",'callback_data'=>"kassa_sozlama=$shop_id_c=$set_id_c"]]]])]);
     exit;
@@ -901,7 +951,7 @@ if(!empty($step) && mb_stripos($step,"add_kassa_info-")!==false && !empty($text)
         mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid_esc'");
     } else {
         $sid  = rand(111111,999999);
-        $skey = $new_key;
+        $skey = generate();
         mysqli_query($connect,"INSERT INTO shops (user_id,shop_name,shop_info,shop_id,shop_key,shop_address,shop_balance,status,date) VALUES('$cid_esc','$name','".base64_encode($text)."','$sid','$skey','$address','0','waiting','$sana')");
         bot('sendmessage',['chat_id'=>$cid,'text'=>"✅ <b>Adminga yuborildi! Kuting.</b>",'parse_mode'=>'html','reply_markup'=>$m]);
         mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid_esc'");
@@ -975,10 +1025,13 @@ if($step=="set_month_price" && in_array($cid,$admin) && !empty($text)){
 // STATISTIKA (admin)
 // ============================================================
 if(!empty($text) && $text=="📊 Statistika" && in_array($cid,$admin)){
-    $stat  = mysqli_fetch_assoc(mysqli_query($connect,"SELECT COUNT(*) as c FROM users"))['c'];
-    $bugun = mysqli_fetch_assoc(mysqli_query($connect,"SELECT COUNT(*) as c FROM users WHERE date='$sana'"))['c'];
+    $s_row = mysqli_fetch_assoc(mysqli_query($connect,
+        "SELECT COUNT(*) as jami, SUM(date='$sana') as bugun FROM users"
+    ));
+    $stat  = $s_row['jami'];
+    $bugun = $s_row['bugun'] ?? 0;
     $textt = "";
-    $s5    = mysqli_query($connect,"SELECT * FROM users ORDER BY id DESC LIMIT 5");
+    $s5    = mysqli_query($connect,"SELECT user_id,id FROM users ORDER BY id DESC LIMIT 5");
     while($u=mysqli_fetch_assoc($s5)) $textt .= "👤 <a href='tg://user?id=".$u['user_id']."'>".$u['user_id']."</a>\n";
     bot('sendMessage',['chat_id'=>$cid,'text'=>"📊 <b>Statistika</b>\n\n▫️ Jami: <b>$stat</b> ta\n▪️ Bugun: <b>$bugun</b> ta\n\nOxirgi 5ta:\n$textt",'parse_mode'=>"html",'reply_markup'=>$panel]);
     exit;
