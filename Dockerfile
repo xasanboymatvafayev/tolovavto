@@ -1,6 +1,7 @@
 FROM php:8.2-fpm-alpine
 
-RUN docker-php-ext-install mysqli
+# mysqli + opcache (tezlik uchun eng muhim)
+RUN docker-php-ext-install mysqli opcache
 
 RUN apk add --no-cache nginx
 
