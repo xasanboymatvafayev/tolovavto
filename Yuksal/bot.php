@@ -378,7 +378,6 @@ if($step=="uzcard_auto" && !empty($text)){
     bot('sendMessage',['chat_id'=>$cid,'text'=>"➡️ <b>To'lov kartasi:</b> <code>$card_show</code>\n\n💵 To'lash kerak: <code>$amount</code> so'm\n⏰ Kutish vaqti: <b>5</b> daqiqa\n✅ To'lov avtomatik qabul qilinadi\n\n👉🏻 Aynan <b>$amount</b> so'm yuboring!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
         [['text'=>"💵 $amount so'm — nusxalash",'copy_text'=>['text'=>$amount]]],
         [['text'=>'💳 Kartani nusxalash','copy_text'=>['text'=>$card_raw]]],
-        [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"chk=$amount=$order"]],
         [['text'=>"🌐 Web to'lov sahifasi",'url'=>$pay_url]],
         [['text'=>"❌ Bekor qilish",'callback_data'=>"cancel_order=$order"]],
     ]])]);
