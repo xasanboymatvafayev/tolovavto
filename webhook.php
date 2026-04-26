@@ -91,9 +91,17 @@ foreach ($lm[0] as $l) {
 // ============================================
 // SUMMA VA BALANS
 // ============================================
+// "summa:1000.00 UZS balans:8228.00 UZS" — ikki ko'rinish qo'llab-quvvatlanadi:
+// 1) "summa : 50 000 UZS"  (bo'sh joy bilan)
+// 2) "summa:1000.00 UZS"   (bo'sh joysiz, nuqta bilan)
+
 $body_norm = preg_replace('/(\d)\s(\d{3})(?=[\s,.]|UZS|$)/', '$1$2', $body);
 
-if (!preg_match('/summa\s*:\s*([\d\s]+(?:[.,]\d+)?)\s*UZS.*?balans\s*:\s*([\d\s]+(?:[.,]\d+)?)\s*UZS/is', $body_norm, $sm)) {
+if (!preg_match(
+    '/summa\s*:\s*([\d\s]+(?:[.,]\d+)?)\s*UZS.*?balans\s*:\s*([\d\s]+(?:[.,]\d+)?)\s*UZS/is',
+    $body_norm,
+    $sm
+)) {
     http_response_code(200);
     echo json_encode(['status' => 'skip', 'reason' => 'no payment found']);
     exit;
@@ -108,13 +116,19 @@ if ($amount <= 0) {
     exit;
 }
 
-// Karta oxirgi 4 raqam
+// ============================================
+// KARTA OXIRGI 4 RAQAM
+// ============================================
+// "karta ***9246" yoki "karta **** 9246" ko'rinishlarini ushlaydi
 $card_last = '****';
-if (preg_match('/karta\s+\*+(\d{4})/i', $body, $cm)) {
+if (preg_match('/karta\s+\*+\s*(\d{4})/i', $body, $cm)) {
     $card_last = $cm[1];
 }
 
-// Sana
+// ============================================
+// SANA
+// ============================================
+// "26.04.26 18:06" formatini ushlaydi
 $op_date = date('d.m.Y H:i');
 if (preg_match('/(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})/i', $body, $dm)) {
     $dp = explode('.', $dm[1]);
@@ -122,28 +136,52 @@ if (preg_match('/(\d{2}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})/i', $body, $dm)) {
 }
 
 // ============================================
-// TIP ANIQLASH — faqat KIRIM yoki CHIQIM
+// TIP ANIQLASH — LOG DAN OLINGAN REAL FORMAT
 // ============================================
-$is_p2p      = (bool)preg_match('/HUMO\s+UZCARD\s+P2P|P2P\s+UZCARD/i', $body);
-$is_zach     = (bool)preg_match('/ZACHISLENIE|zachisleno|postuplenie/i', $body);
-$is_perevod  = (bool)preg_match('/Perevod\s+na\s+kartu\s*:/i', $body);
-$is_schet_to = (bool)preg_match('/SCHET\s+TO\s+UZCARD/i', $body);
-$is_platezh  = (bool)preg_match('/Platezh\s*:/i', $body);
-$is_spisanie = (bool)preg_match('/SPISANIE/i', $body);
+//
+// REAL SMS FORMATLARI (log.txt dan):
+//
+// CHIQIM (debit):
+//   "Perevod na kartu: OPENBANK SCHET TO UZCARD, UZ, ..."  ← biz yuborgan
+//   "Platezh: MERCHANT_NAME, UZ, ..."
+//   "SPISANIE ..."
+//
+// KIRIM (credit):
+//   "HUMO UZCARD P2P ..."   ← bizga biror kishi p2p yuborgan
+//   "ZACHISLENIE ..."        ← hisobga o'tkazilgan
+//   "postuplenie ..."
+//
+// MUHIM: "Perevod na kartu" + "SCHET TO UZCARD" = DOIM CHIQIM
+//        "Perevod na kartu" HECH QACHON kirim emas!
 
-// KIRIM: p2p, zachislenie, perevod na kartu (SCHET TO yo'q degani kimdir bizga o'tkazgan)
-if ($is_p2p || $is_zach || ($is_perevod && !$is_schet_to)) {
-    $type = 'credit';
+$is_schet_to    = (bool)preg_match('/SCHET\s+TO\s+UZCARD/i',          $body);
+$is_perevod_out = (bool)preg_match('/Perevod\s+na\s+kartu\s*:/i',      $body);
+$is_platezh     = (bool)preg_match('/Platezh\s*:/i',                   $body);
+$is_spisanie    = (bool)preg_match('/SPISANIE/i',                       $body);
+
+$is_p2p         = (bool)preg_match('/HUMO\s+UZCARD\s+P2P|P2P\s+UZCARD/i', $body);
+$is_zach        = (bool)preg_match('/ZACHISLENIE|zachisleno|postuplenie/i', $body);
+
+// Avval CHIQIM belgilari tekshiriladi (ustunlik beradi)
+if ($is_perevod_out || $is_schet_to || $is_platezh || $is_spisanie) {
+    $type = 'debit';    // CHIQIM
+} elseif ($is_p2p || $is_zach) {
+    $type = 'credit';   // KIRIM
 } else {
-    // Platezh, Spisanie, SCHET TO, va boshqalar — chiqim
-    $type = 'debit';
+    $type = 'debit';    // Noma'lum = xavfsiz tomon (chiqim)
 }
+
+// DEBUG LOG — kerak bo'lmasa o'chirib qo'yish mumkin
+$debug_log = date('Y-m-d H:i:s') . " | TYPE=$type | perevod_out=$is_perevod_out"
+    . " | schet_to=$is_schet_to | platezh=$is_platezh | spisanie=$is_spisanie"
+    . " | p2p=$is_p2p | zach=$is_zach | amount=$amount | card=$card_last\n";
+file_put_contents(__DIR__ . '/debug.log', $debug_log, FILE_APPEND);
 
 // ============================================
 // MERCHANT — KIMDAN / QAYERGA
 // ============================================
-// Texnik so'zlarni olib tashlaymiz
 function cleanName($raw) {
+    // Texnik so'zlarni tozalaymiz
     $stop = [
         '/\bOPENBANK\b/i',
         '/\bHUMO\s+UZCARD\s+P2P\b/i',
@@ -163,15 +201,22 @@ $merchant = '';
 
 // 1. "Platezh: <MERCHANT>, UZ, ..."
 if ($is_platezh) {
-    if (preg_match('/Platezh\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:|$)/i', $body, $mm)) {
+    if (preg_match(
+        '/Platezh\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:|$)/i',
+        $body, $mm
+    )) {
         $c = cleanName(trim($mm[1]));
         if (!empty($c)) $merchant = $c;
     }
 }
 
-// 2. "Perevod na kartu: <MERCHANT>"
-if (empty($merchant) && $is_perevod) {
-    if (preg_match('/Perevod\s+na\s+kartu\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:|$)/i', $body, $mm)) {
+// 2. "Perevod na kartu: <MERCHANT>, UZ, ..."
+//    Real misol: "Perevod na kartu: OPENBANK SCHET TO UZCARD, UZ,26.04.26..."
+if (empty($merchant) && $is_perevod_out) {
+    if (preg_match(
+        '/Perevod\s+na\s+kartu\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:|$)/i',
+        $body, $mm
+    )) {
         $c = cleanName(trim($mm[1]));
         if (!empty($c)) $merchant = $c;
     }
@@ -179,22 +224,21 @@ if (empty($merchant) && $is_perevod) {
 
 // 3. ZACHISLENIE keyin nom
 if (empty($merchant) && $is_zach) {
-    if (preg_match('/ZACHISLENIE\s+([A-Z][A-Z0-9\s]{2,30}?)(?:\s+summa|\s*,|\s*$)/i', $body, $mm)) {
+    if (preg_match(
+        '/ZACHISLENIE\s+([A-Z][A-Z0-9\s]{2,30}?)(?:\s+summa|\s*,|\s*$)/i',
+        $body, $mm
+    )) {
         $c = cleanName(trim($mm[1]));
         if (!empty($c)) $merchant = $c;
     }
 }
 
-// 4. Fallback — karta oxirgi 4 raqam bilan
+// 4. Fallback
 if (empty($merchant)) {
     if ($type === 'credit') {
-        $merchant = !empty($card_last) && $card_last !== '****'
-            ? "Karta *" . $card_last
-            : "O'tkazma (kirim)";
+        $merchant = ($card_last !== '****') ? "Karta *$card_last" : "O'tkazma (kirim)";
     } else {
-        $merchant = !empty($card_last) && $card_last !== '****'
-            ? "Karta *" . $card_last
-            : "To'lov (chiqim)";
+        $merchant = ($card_last !== '****') ? "Karta *$card_last" : "To'lov (chiqim)";
     }
 }
 
@@ -215,7 +259,9 @@ if (mysqli_num_rows($col_shop) == 0) {
     mysqli_query($connect, "ALTER TABLE payments ADD COLUMN shop_id varchar(50) DEFAULT NULL");
 }
 
-// Karta oxirgi 4 raqami orqali kassani aniqlash
+// ============================================
+// KARTA ORQALI KASSANI ANIQLASH
+// ============================================
 $payment_shop_id = null;
 if ($card_last !== '****') {
     $all_shops = mysqli_query($connect,
@@ -243,7 +289,7 @@ $ins = mysqli_query($connect,
        '$mid_esc',
        '$amount',
        '" . mysqli_real_escape_string($connect, $merchant) . "',
-       '" . mysqli_real_escape_string($connect, $op_date) . "',
+       '" . mysqli_real_escape_string($connect, $op_date)   . "',
        '$type',
        '" . mysqli_real_escape_string($connect, mb_substr($body, 0, 500)) . "',
        'pending',
@@ -349,7 +395,7 @@ if ($ins) {
     }
 
     // ============================================
-    // ADMIN XABARI — faqat KIRIM va TO'LOV
+    // ADMIN XABARI
     // ============================================
     if ($type === 'credit') {
         $type_label = "🟢 Kirim (O'tkazma)";
@@ -382,4 +428,3 @@ if (function_exists('fastcgi_finish_request')) {
 } else {
     ob_end_flush(); flush();
 }
-?>
