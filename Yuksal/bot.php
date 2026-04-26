@@ -36,6 +36,42 @@ function bot($method, $datas=[]){
     return $res ? json_decode($res) : null;
 }
 
+// Parallel ikki bot() chaqiruvini bir vaqtda yuborish
+// answerCallbackQuery + editMessage/sendMessage bitta HTTP roundtrip
+function botParallel($calls){
+    $mh = curl_multi_init();
+    $handles = [];
+    foreach($calls as $i => $call){
+        $ch = curl_init("https://api.telegram.org/bot".API_KEY."/".$call[0]);
+        curl_setopt_array($ch,[
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $call[1] ?? [],
+            CURLOPT_TIMEOUT        => 8,
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_NOSIGNAL       => 1,
+            CURLOPT_TCP_NODELAY    => true,
+            CURLOPT_HTTPHEADER     => ['Connection: keep-alive','Expect:'],
+        ]);
+        curl_multi_add_handle($mh, $ch);
+        $handles[$i] = $ch;
+    }
+    $active = null;
+    do {
+        $st = curl_multi_exec($mh, $active);
+        if($active) curl_multi_select($mh, 0.01);
+    } while($active > 0 && $st == CURLM_OK);
+    $results = [];
+    foreach($handles as $i => $ch){
+        $r = curl_multi_getcontent($ch);
+        $results[$i] = $r ? json_decode($r) : null;
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
+    }
+    curl_multi_close($mh);
+    return $results;
+}
+
 function generate(){
     $arr = ['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','R','S','T','U','V','X','Y','Z','1','2','3','4','5','6','7','8','9','0'];
     $pass = "";
@@ -99,7 +135,7 @@ function joinchat($id){
         $active=null;
         do{
             $st = curl_multi_exec($mh,$active);
-            if($active) curl_multi_select($mh, 0.3);
+            if($active) curl_multi_select($mh, 0.01);
         } while($active>0 && $st==CURLM_OK);
         foreach($handles as $chId=>$ch){
             $res=json_decode(curl_multi_getcontent($ch));
@@ -458,9 +494,9 @@ if(!empty($text) && $text=="📖 API Hujjatlar"){
 // ============================================================
 // KASSALARIM
 // ============================================================
-function show_kassalar($cid,$connect,$mid=null,$edit=false){
+function show_kassalar($cid,$connect,$mid=null,$edit=false,$qid=null){
     $cid_e = mysqli_real_escape_string($connect,$cid);
-    $result = mysqli_query($connect,"SELECT * FROM `shops` WHERE `user_id`='$cid_e'");
+    $result = mysqli_query($connect,"SELECT id,shop_name,status FROM `shops` WHERE `user_id`='$cid_e'");
     $i=0; $key=[]; $has_rows=false;
     while($us=mysqli_fetch_assoc($result)){
         $has_rows=true; $i++;
@@ -470,11 +506,17 @@ function show_kassalar($cid,$connect,$mid=null,$edit=false){
     $key[]=[['text'=>"➕ Kassa qoʻshish",'callback_data'=>"add_kassa"]];
     $kb  = json_encode(['inline_keyboard'=>$key]);
     $txt = $has_rows ? "🏪 <b>Kassalaringiz:</b>" : "⚠️ Kassalar mavjud emas!";
-    if($edit) bot('editmessagetext',['chat_id'=>$cid,'message_id'=>$mid,'text'=>$txt,'parse_mode'=>'html','reply_markup'=>$kb]);
-    else      bot('sendmessage',['chat_id'=>$cid,'text'=>$txt,'parse_mode'=>'html','reply_markup'=>$kb]);
+    if($edit){
+        botParallel([
+            ['answerCallbackQuery', ['callback_query_id'=>$qid]],
+            ['editmessagetext', ['chat_id'=>$cid,'message_id'=>$mid,'text'=>$txt,'parse_mode'=>'html','reply_markup'=>$kb]],
+        ]);
+    } else {
+        bot('sendmessage',['chat_id'=>$cid,'text'=>$txt,'parse_mode'=>'html','reply_markup'=>$kb]);
+    }
 }
 if(!empty($text) && $text=="🏪 Kassalarim"){ show_kassalar($cid,$connect); exit; }
-if(!empty($data) && $data=="Kassalarim"){    show_kassalar($cid,$connect,$mid,true); exit; }
+if(!empty($data) && $data=="Kassalarim"){    show_kassalar($cid,$connect,$mid,true,$qid); exit; }
 
 // ============================================================
 // KASSA KO'RISH
@@ -533,9 +575,12 @@ if(!empty($data) && mb_stripos($data,"kassa_set=")!==false){
         $kb['inline_keyboard'][]=[['text'=>"⏪ Ortga",'callback_data'=>"Kassalarim"]];
     }
 
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
-        'text'=>"<b>$nomi ($icon)</b>\n$confirm_text\n🆔 Shop ID: <code>$shop_id</code>\n🔑 Shop Key: <code>$shop_key</code>\n🔗 Manzil: <b>$address</b>",
-        'parse_mode'=>'html','reply_markup'=>json_encode($kb)]);
+    botParallel([
+        ['answerCallbackQuery', ['callback_query_id'=>$qid]],
+        ['editMessageText', ['chat_id'=>$cid,'message_id'=>$mid,
+            'text'=>"<b>$nomi ($icon)</b>\n$confirm_text\n🆔 Shop ID: <code>$shop_id</code>\n🔑 Shop Key: <code>$shop_key</code>\n🔗 Manzil: <b>$address</b>",
+            'parse_mode'=>'html','reply_markup'=>json_encode($kb)]],
+    ]);
     exit;
 }
 
@@ -560,22 +605,24 @@ if(!empty($data) && mb_stripos($data,"kassa_sozlama=")!==false){
     $owner_show  = !empty($card_owner) ? $card_owner : "Kiritilmagan";
     $email_show  = !empty($rew['email']) ? $rew['email'] : "Kiritilmagan";
 
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,
-        'text'=>"⚙️ <b>Kassa sozlamalari</b>\n\n".
-            "📧 Ulangan e-mail: <code>$email_show</code>\n".
-            "🔌 Provider: $provider\n".
-            "💳 Karta: <code>$card_show</code>".($card_bank?" <b>$card_bank</b>":"")."\n".
-            "👤 Karta egasi: <b>$owner_show</b>\n".
-            "🆔 Shop ID: <code>$shop_id_s</code>\n".
-            "🔑 Shop Key: <code>".$rew['shop_key']."</code>\n".
-            "🔗 Manzil: <b>".$rew['shop_address']."</b>",
-        'parse_mode'=>'html',
-        'reply_markup'=>json_encode(['inline_keyboard'=>[
-            [['text'=>"💳 Karta raqam kiritish",'callback_data'=>"set_card=$shop_id_s=$set_id_s"]],
-            [['text'=>"📩 Kassa ulash",'callback_data'=>"req_connect=$shop_id_s=$cid"]],
-            [['text'=>"⚠️ Keyni yangilash",'callback_data'=>"new_key=$shop_id_s"]],
-            [['text'=>"⏪ Ortga",'callback_data'=>"kassa_set=$set_id_s"]],
-        ]])]);
+    $sozlama_kb = json_encode(['inline_keyboard'=>[
+        [['text'=>"💳 Karta raqam kiritish",'callback_data'=>"set_card=$shop_id_s=$set_id_s"]],
+        [['text'=>"📩 Kassa ulash",'callback_data'=>"req_connect=$shop_id_s=$cid"]],
+        [['text'=>"⚠️ Keyni yangilash",'callback_data'=>"new_key=$shop_id_s"]],
+        [['text'=>"⏪ Ortga",'callback_data'=>"kassa_set=$set_id_s"]],
+    ]]);
+    $sozlama_txt = "⚙️ <b>Kassa sozlamalari</b>\n\n".
+        "📧 Ulangan e-mail: <code>$email_show</code>\n".
+        "🔌 Provider: $provider\n".
+        "💳 Karta: <code>$card_show</code>".($card_bank?" <b>$card_bank</b>":"")."\n".
+        "👤 Karta egasi: <b>$owner_show</b>\n".
+        "🆔 Shop ID: <code>$shop_id_s</code>\n".
+        "🔑 Shop Key: <code>".$rew['shop_key']."</code>\n".
+        "🔗 Manzil: <b>".$rew['shop_address']."</b>";
+    botParallel([
+        ['answerCallbackQuery', ['callback_query_id'=>$qid]],
+        ['editMessageText', ['chat_id'=>$cid,'message_id'=>$mid,'text'=>$sozlama_txt,'parse_mode'=>'html','reply_markup'=>$sozlama_kb]],
+    ]);
     exit;
 }
 
