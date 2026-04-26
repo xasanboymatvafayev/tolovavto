@@ -27,9 +27,10 @@ function bot($method, $datas=[]){
             CURLOPT_FORBID_REUSE      => false,
             CURLOPT_FRESH_CONNECT     => false,
             CURLOPT_HTTPHEADER        => ['Connection: keep-alive','Expect:'],
+            CURLOPT_POST              => true,
         ]);
     }
-    curl_setopt($ch=$_bot_ch, CURLOPT_URL, "https://api.telegram.org/bot".API_KEY."/".$method);
+    curl_setopt($_bot_ch, CURLOPT_URL, "https://api.telegram.org/bot".API_KEY."/".$method);
     curl_setopt($_bot_ch, CURLOPT_POSTFIELDS, $datas);
     $res = curl_exec($_bot_ch);
     return $res ? json_decode($res) : null;
@@ -49,13 +50,24 @@ function joinchat($id){
 
     // 30 soniya DB cache — Telegram API ni keraksiz chaqirmaymiz
     $id_esc = mysqli_real_escape_string($connect, $id);
-    $cache_row = mysqli_fetch_assoc(mysqli_query($connect,
+    $cache_ok = false;
+    $cache_res = mysqli_query($connect,
         "SELECT joined_ok, joined_check FROM users WHERE user_id='$id_esc' LIMIT 1"
-    ));
-    if($cache_row && $cache_row['joined_ok'] == 1 &&
-       !empty($cache_row['joined_check']) &&
-       (time() - strtotime($cache_row['joined_check'])) < 30){
-        return true;
+    );
+    if($cache_res){
+        $cache_row = mysqli_fetch_assoc($cache_res);
+        if($cache_row
+           && isset($cache_row['joined_ok'])
+           && $cache_row['joined_ok'] == 1
+           && !empty($cache_row['joined_check'])
+           && (time() - strtotime($cache_row['joined_check'])) < 30){
+            return true;
+        }
+    }
+    // joined_ok ustuni yo'q bo'lsa — qo'shib qo'yamiz (bir marta)
+    elseif(!$cache_res){
+        @mysqli_query($connect,"ALTER TABLE users ADD COLUMN joined_ok TINYINT(1) NOT NULL DEFAULT 0");
+        @mysqli_query($connect,"ALTER TABLE users ADD COLUMN joined_check DATETIME NULL DEFAULT NULL");
     }
 
     $lock_channels = [];
@@ -128,6 +140,12 @@ function joinchat($id){
 }
 
 function getStats($connect, $shop_id){
+    static $_idx_done = false;
+    if(!$_idx_done){
+        @mysqli_query($connect,"ALTER TABLE checkout ADD INDEX idx_shop_status_paid (shop_id, status)");
+        @mysqli_query($connect,"ALTER TABLE payments ADD INDEX idx_shop_id_type (shop_id, card_type)");
+        $_idx_done = true;
+    }
     $today    = date('Y-m-d');
     $yesterday= date('Y-m-d', strtotime('-1 day'));
     $month_s  = date('Y-m-01');
@@ -135,7 +153,6 @@ function getStats($connect, $shop_id){
     $prev_e   = date('Y-m-t',  strtotime('-1 month'));
     $sid      = mysqli_real_escape_string($connect, $shop_id);
 
-    // 5 ta alohida SQL o'rniga bitta so'rov — 5x tezroq
     $row = mysqli_fetch_assoc(mysqli_query($connect, "
         SELECT
           COALESCE(SUM(CASE WHEN DATE(date)='$today'     THEN amount ELSE 0 END),0) as bugun,
@@ -237,7 +254,9 @@ if(!empty($data) && $data=="result"){
 // /start va Ortga
 // ============================================================
 if(!empty($text) && ($text=="/start" || $text=="⏪ Ortga")){
-    $has_channels = mysqli_num_rows(mysqli_query($connect,"SELECT id FROM channels LIMIT 1")) > 0;
+    static $has_channels = null;
+    if($has_channels === null)
+        $has_channels = mysqli_num_rows(mysqli_query($connect,"SELECT id FROM channels LIMIT 1")) > 0;
     if(!$has_channels || joinchat($cid)==true){
         mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid_esc'");
         bot('sendMessage',['chat_id'=>$cid,'text'=>"👋🏻 <b>Assalomu alaykum $name!</b>\n\n@$bot botga xush kelibsiz.",'parse_mode'=>'html','reply_markup'=>$m]);
@@ -261,8 +280,7 @@ if(!empty($text) && $text=="💵 Hisobim"){
     exit;
 }
 if(!empty($data) && $data=="Hisobim"){
-    $a2=mysqli_fetch_assoc(mysqli_query($connect,"SELECT * FROM users WHERE user_id='$cid_esc'"));
-    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"👔 <b>Sizning hisobingiz!</b>\n\n• ID: <code>".$a2['id']."</code>\n• Balans: <b>".$a2['balance']."</b> so'm\n• Kiritgan: <b>".$a2['deposit']."</b> so'm",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔄 Yangilash",'callback_data'=>"Hisobim"]],[['text'=>"📋 To'ldirish tarixi",'callback_data'=>"user_history=1"]]]])]);
+    bot('editMessageText',['chat_id'=>$cid,'message_id'=>$mid,'text'=>"👔 <b>Sizning hisobingiz!</b>\n\n• ID: <code>$uid</code>\n• Balans: <b>$balance</b> so'm\n• Kiritgan: <b>$payment</b> so'm",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[[['text'=>"🔄 Yangilash",'callback_data'=>"Hisobim"]],[['text'=>"📋 To'ldirish tarixi",'callback_data'=>"user_history=1"]]]])]);
     exit;
 }
 
