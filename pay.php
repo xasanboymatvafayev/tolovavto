@@ -142,8 +142,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sa
 
 <div class="header">
   <a href="#" class="logo">
-    <div class="logo-icon">&#x1F6E1;</div>
-    checkcard<em>.uz</em>
+    <div class="logo-icon">&#x1F4B3;</div>
+    tolovchi<em>.uz</em>
   </a>
   <div class="hdr-r">
     <div class="secure">&#x1F512; Secure Payment</div>
