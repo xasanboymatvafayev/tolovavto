@@ -387,10 +387,8 @@ if($step=="uzcard_auto" && !empty($text)){
         $remain_min  = ceil($remain_secs / 60);
 
         bot('sendMessage',['chat_id'=>$cid,'text'=>"✅ <b>Faol to'lovingiz mavjud!</b>\n\n💵 To'lash kerak: <b>$act_fmt</b> so'm\n⏰ Qolgan vaqt: <b>~$remain_min daqiqa</b>\n⚠️ Aynan shu miqdorni yuboring!\n\n❌ Bekor qilish uchun tugmani bosing.",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
-            [['text'=>"💵 Miqdorni nusxalash",'copy_text'=>['text'=>$act_amount]]],
             [['text'=>"💳 Kartani nusxalash",'copy_text'=>['text'=>$card_raw]]],
             [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"chk=".$act_amount."=".$active_order['order']]],
-            [['text'=>"🌐 Web to'lov",'url'=>$pay_url]],
             [['text'=>"❌ Bekor qilish",'callback_data'=>"cancel_order=".$active_order['order']]],
         ]])]);
         mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid_esc'");
@@ -413,10 +411,7 @@ if($step=="uzcard_auto" && !empty($text)){
     $pay_url = "https://$sub_domen/pay?order=$order&shop_id=127000";
 
     bot('sendMessage',['chat_id'=>$cid,'text'=>"➡️ <b>To'lov kartasi:</b> <code>$card_show</code>\n\n💵 To'lash kerak: <code>$amount</code> so'm\n⏰ Kutish vaqti: <b>5 daqiqa</b>\n✅ To'lov avtomatik qabul qilinadi\n\n👉🏻 Aynan <b>$amount</b> so'm yuboring!",'parse_mode'=>'html','reply_markup'=>json_encode(['inline_keyboard'=>[
-        [['text'=>"💵 $amount so'm — nusxalash",'copy_text'=>['text'=>$amount]]],
         [['text'=>"💳 Kartani nusxalash",'copy_text'=>['text'=>$card_raw]]],
-        [['text'=>"✅ To'lovni tekshirish",'callback_data'=>"chk=$amount=$order"]],
-        [['text'=>"🌐 Web to'lov sahifasi",'url'=>$pay_url]],
         [['text'=>"❌ Bekor qilish",'callback_data'=>"cancel_order=$order"]],
     ]])]);
     mysqli_query($connect,"UPDATE users SET step='null' WHERE user_id='$cid_esc'");
