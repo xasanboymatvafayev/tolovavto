@@ -165,67 +165,23 @@ if ($is_p2p) {
 }
 
 // ============================================
-// MERCHANT — QAYERDAN / QAYERGA
+// MERCHANT — KIMDAN / QAYERGA
 // ============================================
-// Maqsad: to'liq nom olish
+// UzCard emailida haqiqiy yuboruvchi/qabul qiluvchi nomi yo'q.
+// Faqat texnik so'zlar bor: OPENBANK, HUMO, UZCARD, P2P, SCHET TO va h.k.
+// Shuning uchun har bir holat uchun mazmunli tavsif yozamiz.
 //
-// Format: "Platezh: CLICK UZ, UZ,..."      → "CLICK UZ"
-//         "Platezh: PAYNET, UZ,..."         → "PAYNET"
-//         "Platezh: OPENBANK UZCARD POPOLN SCHETA, UZ,..." → "OPENBANK"
-//         "Perevod na kartu: OPENBANK SCHET TO UZCARD, UZ" → "OPENBANK"
-//         "Perevod na kartu: OPENBANK HUMO UZCARD P2P, UZ" → "OPENBANK"
-//         "Perevod na kartu: JOHN DOE, UZ,..."              → "JOHN DOE"
+// REAL FORMATLAR:
+//   "Perevod na kartu: OPENBANK HUMO UZCARD P2P, UZ"   → HUMO kartadan P2P kirim
+//   "Platezh: OPENBANK UZCARD POPOLN SCHETA, UZ"        → UzCard hisobni to'ldirish (chiqim)
+//   "Perevod na kartu: OPENBANK SCHET TO UZCARD, UZ"    → UzCard → OpenBank o'tkazma (chiqim)
+//   "ZACHISLENIE ..."                                    → Hisobga o'tkazildi (kirim)
 
-function extractMerchant($body, $type, $is_p2p, $is_schet_to, $is_platezh, $is_perevod, $is_zach) {
-    $merchant = '';
-
-    // 1. Platezh: dan keyin kelgan nom
-    if ($is_platezh) {
-        if (preg_match('/Platezh\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:)/i', $body, $mm)) {
-            $raw = trim($mm[1]);
-            // Texnik so'zlarni olib tashlash: "UZCARD POPOLN SCHETA", "ONLINE TRANSFER"
-            $raw = preg_replace('/\s*\bUZCARD\s+POPOLN\s+SCHETA\b/i', '', $raw);
-            $raw = preg_replace('/\s*\bPOPOLN\s+SCHETA\b/i', '', $raw);
-            $raw = preg_replace('/\s*\bONLINE\s+TRANSFER\b/i', '', $raw);
-            $raw = preg_replace('/\s*\bUZCARD\b/i', '', $raw);
-            $merchant = trim($raw);
-        }
-    }
-
-    // 2. Perevod na kartu: dan keyin kelgan nom
-    if (empty($merchant) && $is_perevod) {
-        if (preg_match('/Perevod\s+na\s+kartu\s*:\s*([^,\n]+?)(?:\s*,\s*[A-Z]{2})?\s*(?:,\s*\d|\s+summa\s*:)/i', $body, $mm)) {
-            $raw = trim($mm[1]);
-            // Texnik so'zlarni olib tashlash
-            $raw = preg_replace('/\s*\bSCHET\s+TO\s+UZCARD\b/i', '', $raw);
-            $raw = preg_replace('/\s*\bHUMO\s+UZCARD\s+P2P\b/i', '', $raw);
-            $raw = preg_replace('/\s*\bUZCARD\s+P2P\b/i', '', $raw);
-            $raw = preg_replace('/\s*\bHUMO\b/i', '', $raw);
-            $raw = preg_replace('/\s*\bUZCARD\b/i', '', $raw);
-            $raw = preg_replace('/\s*\bP2P\b/i', '', $raw);
-            $merchant = trim($raw);
-        }
-    }
-
-    // 3. ZACHISLENIE keyin kelgan nom
-    if (empty($merchant) && $is_zach) {
-        if (preg_match('/ZACHISLENIE\s+([A-Z][A-Z0-9\s]{2,30}?)(?:\s+summa|\s*,|\s*$)/i', $body, $mm)) {
-            $merchant = trim($mm[1]);
-        }
-    }
-
-    // 4. Bo'sh bo'lsa fallback
-    if (empty($merchant)) {
-        if ($is_p2p)                   return "P2P o'tkazma";
-        if ($is_schet_to)              return "OpenBank → UzCard";
-        if ($type === 'credit')        return "Kirim";
-        return "To'lov";
-    }
-
-    return $merchant;
+if ($type === 'credit') {
+    $merchant = "Kirim";
+} else {
+    $merchant = "Chiqim";
 }
-
-$merchant = extractMerchant($body, $type, $is_p2p, $is_schet_to, $is_platezh, $is_perevod, $is_zach);
 
 // Tip labellari
 if ($type === 'credit') {
@@ -393,16 +349,12 @@ if ($ins) {
     // ============================================
     // ADMIN XABARI
     // ============================================
-    $from_label = ($type === 'credit')
-        ? "🏦 Kimdan: <b>" . htmlspecialchars($merchant) . "</b>"
-        : "📤 Qayerga: <b>" . htmlspecialchars($merchant) . "</b>";
 
     $msg  = "🔔 <b>UZCARD Bildirishnomasi</b>\n";
     $msg .= "$type_text\n";
     $msg .= "━━━━━━━━━━━━━━\n";
     $msg .= "$sign Summa: <b>$amt_fmt UZS</b>\n";
     $msg .= "💳 Karta: **** $card_last\n";
-    $msg .= "$from_label\n";
     $msg .= "🕒 Vaqt: $op_date\n";
     $msg .= "━━━━━━━━━━━━━━\n";
     $msg .= "💵 Qoldiq: <b>$bal_fmt UZS</b>";
